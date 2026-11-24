@@ -1,0 +1,32 @@
+{
+ "name": "Geldgrube",
+ "short_name": "Geldgrube",
+ "description": "Sch\u00fcrfe Spielgeld, kaufe Upgrades und handle mit Gold.",
+ "lang": "de",
+ "start_url": "./index.html",
+ "scope": "./",
+ "display": "standalone",
+ "orientation": "portrait",
+ "background_color": "#050d09",
+ "theme_color": "#050d09",
+ "icons": [
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}

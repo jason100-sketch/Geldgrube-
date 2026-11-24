@@ -1,0 +1,1684 @@
+<!doctype html><html lang="de"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><meta name="theme-color" content="#050d09">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+/* Ersetzt window.claude: Cloud-Speicher und Rangliste laufen über Firebase. Ohne Konfiguration läuft die Grube nur solo. */
+(function () {
+  var cfg = window.GELDGRUBE_FIREBASE, ready = null;
+  function boot() {
+    if (ready) return ready;
+    ready = new Promise(function (res) {
+      if (!cfg || !cfg.apiKey || cfg.apiKey.indexOf('DEIN') === 0 || !window.firebase) return res(null);
+      setTimeout(function () { res(null); }, 10000);
+      try {
+        firebase.initializeApp(cfg);
+        firebase.auth().signInAnonymously().then(function (c) { res({ db: firebase.firestore(), uid: c.user.uid }); }, function () { res(null); });
+      } catch (e) { res(null); }
+    });
+    return ready;
+  }
+  window.claude = { use: function (n) {
+    return boot().then(function (r) {
+      if (!r) return null;
+      if (n === 'db') return r.db;
+      if (n === 'user') return { id: function () { return r.uid; }, can: function () { return true; } };
+      return null;
+    });
+  } };
+})();
+</script>
+</head><body>
+<title>Geldgrube</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: Tresor-Pult. Oben Kontostand und Kennzahlen, mittig die Münze zum Gedrückthalten, darunter Reiter für Upgrades, Aufträge, Goldhandel, Münzen (Wiedergeburt) und Rangliste (solo oder im Raum mit Freunden). */
+:root {
+  --bg: #DFEBE1;
+  --surface: #F1F7F2;
+  --ink: #0E241A;
+  --muted: #4C675A;
+  --line: #B6CCBC;
+  --accent: #0F7A44;
+  --accent-ink: #FFFFFF;
+  --accent-lo: #0A5A32;
+  --gold: #E8B230;
+  --gold-hi: #FFD76A;
+  --gold-lo: #A8731A;
+  --gold-ink: #3B2A05;
+  --hl: #CFE8C8;
+  --ring: #CFE0D3;
+  --font-display: "Bricolage Grotesque", "Arial Black", system-ui, sans-serif;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A130E;
+    --surface: #122019;
+    --ink: #E4F1E7;
+    --muted: #88A596;
+    --line: #223A2E;
+    --accent: #3FD184;
+    --accent-ink: #04200F;
+    --accent-lo: #2BA566;
+    --gold: #F2BE3C;
+    --gold-hi: #FFE08A;
+    --gold-lo: #B98A1E;
+    --gold-ink: #2D1F02;
+    --hl: #1B3A28;
+    --ring: #17291F;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0A130E;
+  --surface: #122019;
+  --ink: #E4F1E7;
+  --muted: #88A596;
+  --line: #223A2E;
+  --accent: #3FD184;
+  --accent-ink: #04200F;
+  --accent-lo: #2BA566;
+  --gold: #F2BE3C;
+  --gold-hi: #FFE08A;
+  --gold-lo: #B98A1E;
+  --gold-ink: #2D1F02;
+  --hl: #1B3A28;
+  --ring: #17291F;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  background-image: repeating-radial-gradient(circle at 50% -8%, transparent 0 15px, color-mix(in srgb, var(--line) 45%, transparent) 15px 16px);
+  background-repeat: no-repeat;
+  background-size: 100% 520px;
+  color: var(--ink);
+  font: 16px/1.45 var(--font-body);
+  -webkit-text-size-adjust: 100%;
+  padding-block: 16px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button, input { font: inherit; color: inherit; }
+button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+/* Kopf */
+.stripe { height: 6px; background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, var(--gold) 8px 16px); }
+.brandrow { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin-top: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 800 26px/1 var(--font-display); letter-spacing: .02em; text-transform: uppercase; }
+.mark { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 800 15px/1 var(--font-display); color: var(--gold-ink);
+  background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold) 55%, var(--gold-lo)); box-shadow: inset 0 0 0 2px var(--gold-lo); }
+.sim { font-size: 13px; color: var(--muted); }
+#coins { display: block; margin-top: 8px; font-size: clamp(34px, 11.5vw, 58px); font-weight: 600; line-height: 1.05; overflow-wrap: anywhere; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; border-top: 1px solid var(--line); }
+.stat { padding: 10px 8px 10px 12px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); min-width: 0; }
+.stat:nth-child(odd) { border-left: 0; padding-left: 0; }
+.lbl { display: block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.stat .num { display: block; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.ingot { display: inline-block; width: 1.2em; height: .72em; margin-right: 6px; vertical-align: -.04em;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 55%, var(--gold-lo)); clip-path: polygon(18% 0, 82% 0, 100% 100%, 0 100%); }
+
+/* Münze: Farben und Effekte kommen aus der Wiedergeburts-Stufe (data-skin, data-deco, --s1…) */
+.mine {
+  --s1: #F6C3A0; --s2: #D0763F; --s3: #7C3A17; --s4: #F0A878; --sink: #3A1A08; --sglow: transparent; --sfb: #4A2410; --sft: #FFE9D8;
+  position: relative; display: grid; place-items: center; padding: 26px 0 30px;
+}
+.tap {
+  position: relative; z-index: 1;
+  width: min(60vw, 224px); aspect-ratio: 1; border: 0; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  color: var(--sink);
+  background: radial-gradient(circle at 34% 28%, var(--s1), var(--s2) 58%, var(--s3));
+  box-shadow: inset 0 0 0 10px var(--s3), inset 0 0 0 12px var(--s4), 0 0 0 10px var(--ring), 0 0 0 11px var(--line), 0 12px 0 11px var(--s3), 0 0 36px 14px var(--sglow);
+  transform: translateY(-6px);
+  transition: transform .06s ease-out, box-shadow .06s ease-out;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none;
+}
+.tap:active, .tap.holding { transform: translateY(4px); box-shadow: inset 0 0 0 10px var(--s3), inset 0 0 0 12px var(--s4), 0 0 0 10px var(--ring), 0 0 0 11px var(--line), 0 2px 0 11px var(--s3), 0 0 36px 14px var(--sglow); }
+.tap::before { content: ""; position: absolute; inset: 12px; border-radius: 50%; pointer-events: none; z-index: 0; }
+.tap > span { position: relative; z-index: 1; }
+.tap-sym { font: 800 84px/1 var(--font-display); }
+.tap-sub { font: 600 16px/1 var(--font-mono); }
+.autoline { margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
+.autoline + .autoline { margin-top: 2px; }
+
+.mine[data-deco="facet"] .tap::before { background: conic-gradient(from 15deg, rgba(255,255,255,.38), transparent 14%, rgba(255,255,255,.22) 30%, transparent 46%, rgba(255,255,255,.34) 62%, transparent 78%, rgba(255,255,255,.26) 92%, rgba(255,255,255,.38)); }
+.mine[data-deco="shine"] .tap::before { background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.75) 50%, transparent 62%); background-size: 260% 100%; animation: shine 2.6s linear infinite; }
+.mine[data-deco="conic"] .tap::before { background: conic-gradient(#ff4d6d, #ffb02e, #ffe14d, #3ddc97, #3da5ff, #b66dff, #ff4d6d); opacity: .6; animation: spin 7s linear infinite; }
+.mine[data-deco="space"] .tap::before { background:
+  radial-gradient(circle at 20% 30%, #fff 0 1px, transparent 2px), radial-gradient(circle at 70% 20%, #cfd8ff 0 1.5px, transparent 2.5px),
+  radial-gradient(circle at 55% 65%, #fff 0 1px, transparent 2px), radial-gradient(circle at 30% 78%, #9fe6ff 0 1.5px, transparent 2.5px),
+  radial-gradient(circle at 82% 70%, #fff 0 1px, transparent 2px), radial-gradient(circle at 45% 40%, rgba(138,123,255,.45), transparent 60%);
+  animation: spin 40s linear infinite; }
+.mine[data-deco="holo"] .tap::before { background: conic-gradient(#7df9ff, #ff7ad9, #ffd76a, #7dffb0, #7df9ff); opacity: .55; animation: spin 3s linear infinite; }
+.mine[data-deco="holo"] .tap { animation: aura 2.2s ease-in-out infinite; }
+@keyframes shine { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes aura { 50% { filter: brightness(1.18) saturate(1.2); } }
+.mine .tap.flash { animation: flash .7s ease-out; }
+@keyframes flash { 0% { filter: brightness(1.7) saturate(1.4); } 100% { filter: none; } }
+
+.floaters { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 2; }
+.coin {
+  position: absolute; left: 50%; top: 44%; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; font: 800 16px/1 var(--font-display); color: var(--sink);
+  background: radial-gradient(circle at 35% 30%, var(--s1), var(--s2) 55%, var(--s3));
+  box-shadow: inset 0 0 0 3px var(--s3), inset 0 0 0 4px var(--s4);
+  animation: hop var(--t, .9s) linear both;
+}
+.coin.big { width: 40px; height: 40px; font-size: 21px; }
+@keyframes hop {
+  0% { transform: translate(-50%, -50%) translate(0, 0) perspective(300px) rotateY(0deg); opacity: 1; animation-timing-function: cubic-bezier(.2, .7, .4, 1); }
+  45% { transform: translate(-50%, -50%) translate(calc(var(--dx) * .55), var(--up)) perspective(300px) rotateY(540deg); opacity: 1; animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  100% { transform: translate(-50%, -50%) translate(var(--dx), var(--down)) perspective(300px) rotateY(1080deg); opacity: 0; }
+}
+.pt { position: absolute; left: var(--x); top: var(--y); width: var(--sz); height: var(--sz); background: var(--c); animation: ptfly var(--t) cubic-bezier(.15, .7, .35, 1) forwards; }
+.pt-coin { border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(0,0,0,.25); }
+.pt-spark { clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.pt-gem { clip-path: polygon(50% 0, 100% 40%, 50% 100%, 0 40%); }
+.pt-star { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.pt-conf { height: calc(var(--sz) * .5); border-radius: 1px; }
+@keyframes ptfly {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(.4); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)) scale(1); opacity: 0; }
+}
+.rfx { position: absolute; left: var(--x); top: var(--y); width: 60px; height: 60px; border: 3px solid var(--s4); border-radius: 50%; transform: translate(-50%, -50%); animation: ringx .55s ease-out forwards; }
+@keyframes ringx { from { opacity: .9; } to { transform: translate(-50%, -50%) scale(3.4); opacity: 0; } }
+.ing { position: absolute; width: 38px; height: 24px; transform: translate(-50%, -50%);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 55%, var(--gold-lo)); clip-path: polygon(18% 0, 82% 0, 100% 100%, 0 100%); animation: ingup 1.2s ease-out forwards; }
+@keyframes ingup { from { opacity: 1; } to { transform: translate(-50%, -280%) scale(1.3); opacity: 0; } }
+.fl {
+  position: absolute; transform: translate(-50%, -50%); padding: 2px 9px; border-radius: 999px;
+  background: var(--sfb); color: var(--sft); font: 600 15px/1.4 var(--font-mono); white-space: nowrap;
+  animation: flUp .8s ease-out forwards;
+}
+@keyframes flUp { from { opacity: 1; transform: translate(-50%, -50%); } to { opacity: 0; transform: translate(-50%, -220%); } }
+@keyframes flFade { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .fl, .coin, .ing { animation-name: flFade; animation-duration: .8s; }
+  .tap { transition: none; }
+  .tap.flash, .mine .tap, .mine .tap::before { animation: none !important; }
+}
+
+/* Reiter */
+.tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.tab { position: relative; background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 10px 0; font: 700 14px/1.2 var(--font-display); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.pip { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px var(--bg); }
+
+/* Upgrades */
+.buyqty { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 6px 14px; font-weight: 600; font-size: 14px; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.list, .rank { list-style: none; margin: 0; padding: 0; }
+.grp { padding: 18px 0 6px; font: 700 13px/1 var(--font-body); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); border-bottom: 1px solid var(--line); }
+.up { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.up-name { font: 700 19px/1.15 var(--font-display); }
+.lv { font: 500 12px var(--font-mono); color: var(--muted); margin-left: 8px; white-space: nowrap; }
+.up-desc { margin-top: 3px; color: var(--muted); font-size: 14px; }
+.buy { min-width: 116px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 12px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-ink); }
+.buy-l { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.buy-c { font-size: 14px; font-weight: 600; }
+.buy:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+
+/* Überschriften der Bereiche */
+.reb h2, .rank-h h2, .sec-h h2 { margin: 0; font: 800 24px/1.1 var(--font-display); text-wrap: balance; }
+.sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.sec-h .num { font-size: 13px; color: var(--muted); }
+.sec-p { margin: 0 0 6px; color: var(--muted); font-size: 14px; }
+
+/* Aufträge */
+.ord { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.ord-t { font: 700 18px/1.2 var(--font-display); }
+.ord.ready .ord-t { color: var(--accent); }
+.ord-c { margin-top: 2px; color: var(--muted); font-size: 14px; }
+.ord .bar { margin-top: 8px; }
+.ord-p { margin-top: 4px; font-size: 13px; color: var(--muted); }
+.ord-btns { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.mini { background: none; border: 0; padding: 2px 0; color: var(--muted); font-size: 12px; text-decoration: underline; }
+
+/* Goldhandel */
+.mkt-top { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.mkt-top > div { padding: 10px 8px 10px 12px; min-width: 0; }
+.mkt-top > div:first-child { padding-left: 0; }
+.mkt-top > div + div { border-left: 1px solid var(--line); }
+.mkt-top .big { display: block; font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.mkt-top .sub { display: block; font-size: 13px; color: var(--muted); }
+.chart { display: block; width: 100%; height: auto; margin: 12px 0 4px; }
+.chart .cb { stroke: var(--line); stroke-dasharray: 4 4; }
+.chart .ca { fill: var(--accent); opacity: .14; }
+.chart .cl { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.chart .cd { fill: var(--gold); stroke: var(--gold-lo); stroke-width: 2; }
+.chart text { fill: var(--muted); font: 11px var(--font-mono); }
+.trade { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.trade .buy { min-width: 0; }
+
+/* Wiedergeburt und Münzen */
+.reb { display: flex; flex-direction: column; gap: 14px; }
+.reb p { margin: 0; color: var(--muted); }
+.rebgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.rebgrid div { padding: 10px 12px; min-width: 0; }
+.rebgrid div + div { border-left: 1px solid var(--line); }
+.rebgrid .num { display: block; font-size: 20px; font-weight: 600; }
+.bar { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+.skins { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.skin { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 10px; align-items: center; padding: 10px 8px 10px 0; border-bottom: 1px solid var(--line); }
+.skin:nth-child(even) { padding-left: 12px; border-left: 1px solid var(--line); }
+.sw { grid-row: 1 / 3; width: 40px; height: 40px; border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, var(--s1), var(--s2) 58%, var(--s3)); box-shadow: inset 0 0 0 4px var(--s3), inset 0 0 0 5px var(--s4); }
+.sn { font: 700 15px/1.1 var(--font-display); }
+.se { font-size: 12px; color: var(--muted); line-height: 1.25; }
+.skin.lock .sw { filter: grayscale(1) brightness(.75); opacity: .6; }
+.skin.lock .sn { color: var(--muted); }
+.skin.on { background: var(--hl); }
+
+/* Rangliste */
+.rank-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.r { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 11px 10px; border-bottom: 1px solid var(--line); }
+.r.me { background: var(--hl); font-weight: 600; }
+.pos { font: 600 15px var(--font-mono); color: var(--muted); }
+.r.me .pos { color: var(--ink); }
+.who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who small { margin-left: 6px; color: var(--muted); font-weight: 400; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--line); }
+.dot.on { background: var(--accent); }
+.sc { font-size: 14px; }
+.hint { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+.form { display: flex; flex-direction: column; gap: 10px; }
+.form label { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.form input, .codearea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+#codeIn { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .12em; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.big-btn { padding: 14px 16px; border: 0; border-radius: 8px; font: 700 18px/1.1 var(--font-display); background: var(--accent); color: var(--accent-ink); }
+.big-btn:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+.big-btn.warn { background: var(--gold); color: var(--gold-ink); }
+.row .big-btn { flex: 1 1 140px; font-size: 16px; }
+.ghost { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; font-weight: 600; font-size: 14px; }
+.roomhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 8px; }
+.roomhead b { font-size: 20px; letter-spacing: .12em; }
+
+/* Fuß */
+.foot { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+.foot p { margin: 0; }
+.footrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.foot details { width: 100%; }
+.foot summary { cursor: pointer; color: var(--ink); font-size: 14px; }
+.codearea { margin-top: 8px; min-height: 72px; font: 12px/1.3 var(--font-mono); resize: vertical; }
+.reset { background: none; border: 0; padding: 4px 0; color: var(--ink); text-decoration: underline; font-size: 14px; }
+
+.toast {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: var(--ink); color: var(--bg); text-align: center; font-weight: 500;
+}
+</style>
+
+<script>document.documentElement.dataset.theme='dark'</script>
+<style>
+:root{--panel:rgba(255,255,255,.05);--edge:rgba(255,215,106,.2)}
+body{background:radial-gradient(70% 38% at 50% 0%,rgba(242,190,60,.28),transparent 70%),radial-gradient(60% 40% at 0% 100%,rgba(43,165,102,.3),transparent 70%),radial-gradient(50% 35% at 100% 55%,rgba(138,123,255,.13),transparent 70%),#050d09;background-attachment:fixed}
+.stripe{border-radius:9px;background:repeating-linear-gradient(-45deg,var(--gold) 0 10px,#6b4710 10px 20px)}
+.brandrow{flex-wrap:nowrap}
+.brand{font-size:30px;background:linear-gradient(100deg,#fff1c2,#f2be3c 38%,#b9801a 55%,#ffe08a 78%,#fff1c2);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 10px rgba(242,190,60,.35));animation:gleam 2.6s ease-out 1}
+@keyframes gleam{from{background-position:100% 0}to{background-position:0 0}}
+.sim{display:block;margin-top:6px}
+.snd{width:44px;height:44px;flex:none;border-radius:50%;border:1px solid var(--edge);background:var(--panel);color:var(--gold-hi);display:grid;place-items:center}
+.snd[aria-expanded="true"]{background:var(--gold);color:var(--gold-ink)}
+.sndp{margin-top:10px;padding:12px 14px;border:1px solid var(--edge);border-radius:16px;background:rgba(10,26,18,.92);display:grid;gap:10px}
+.srow{display:grid;grid-template-columns:22px 58px 1fr;gap:10px;align-items:center}
+.srow input[type=range]{width:100%;accent-color:var(--gold)}
+.srow input[type=checkbox]{width:22px;height:22px;margin:0;accent-color:var(--gold)}
+#coins{text-align:center;background:linear-gradient(180deg,#fff6d1,#f2be3c 55%,#c98a14);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(242,190,60,.4))}
+.stats{gap:8px;border-top:0}
+.stat,.stat:nth-child(odd){padding:10px 12px;border:1px solid var(--edge);border-radius:14px;background:var(--panel)}
+.lbl,.grp,.buy-l,.form label{text-transform:none;letter-spacing:.02em}
+.mine::before{content:"";position:absolute;left:50%;top:50%;width:min(100%,520px);aspect-ratio:1;translate:-50% -50%;border-radius:50%;pointer-events:none;background:repeating-conic-gradient(rgba(255,215,106,.17) 0 6deg,transparent 6deg 18deg);-webkit-mask:radial-gradient(circle,#000 8%,transparent 68%);mask:radial-gradient(circle,#000 8%,transparent 68%);animation:spin 70s linear infinite}
+.tap{filter:drop-shadow(0 14px 26px rgba(0,0,0,.55))}
+.tabs{gap:5px;padding:5px;border:1px solid var(--edge);border-radius:18px;background:var(--panel)}
+.tab{margin:0;padding:11px 0;border:0;border-radius:13px;font-size:13px}
+.tab[aria-selected="true"]{background:linear-gradient(180deg,var(--gold-hi),var(--gold));color:var(--gold-ink);box-shadow:0 4px 14px rgba(242,190,60,.35)}
+.grp{color:var(--gold);font-size:15px;border-bottom-color:var(--edge)}
+.up,.ord,.r{border:1px solid var(--edge);border-radius:16px;background:var(--panel);padding:13px 14px;margin-top:8px}
+.r.me{background:var(--hl);border-color:var(--gold)}
+.ord.ready{border-color:var(--gold);box-shadow:0 0 22px rgba(242,190,60,.22)}
+.buy{border-radius:12px;background:linear-gradient(180deg,var(--gold-hi),var(--gold) 60%,var(--gold-lo));color:var(--gold-ink);box-shadow:0 3px 0 #6b4710,0 6px 16px rgba(242,190,60,.22);transition:transform .08s,box-shadow .08s}
+.buy:active:not(:disabled){transform:translateY(3px);box-shadow:0 0 0 #6b4710}
+.buy:disabled{background:var(--line);color:var(--muted);box-shadow:none}
+.seg{border-radius:12px;border-color:var(--edge)}
+.seg button[aria-pressed="true"]{background:var(--gold);color:var(--gold-ink)}
+.big-btn,.ghost{border-radius:12px}
+.toast{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));max-width:520px;margin-inline:auto;padding:12px 16px;border:1px solid var(--gold);border-radius:16px;background:rgba(10,26,18,.95);color:var(--ink);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+@media (prefers-reduced-motion:reduce){.mine::before,.brand{animation:none}}
+</style>
+<main class="wrap">
+  <header>
+    <div class="stripe" aria-hidden="true"></div>
+    <div class="brandrow">
+      <span class="brand"><span class="mark" aria-hidden="true">€</span>Geldgrube</span>
+      <button class="snd" id="sndBtn" type="button" aria-label="Ton einstellen" aria-expanded="false"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg></button>
+    </div>
+    <div class="sndp" id="sndPanel" hidden>
+      <div class="srow"><input type="checkbox" id="mOn" aria-label="Musik an"><label for="mVol">Musik</label><input type="range" id="mVol" min="0" max="100"></div>
+      <div class="srow"><input type="checkbox" id="sOn" aria-label="Effekte an"><label for="sVol">Effekte</label><input type="range" id="sVol" min="0" max="100"></div>
+    </div>
+    <span class="sim">Spielgeld, kein echtes Geld</span>
+    <span id="coins" class="num">0,00 €</span>
+    <div class="stats">
+      <div class="stat"><span class="lbl">Pro Sekunde</span><span id="rate" class="num">0,00 €/s</span></div>
+      <div class="stat"><span class="lbl">Pro Klick</span><span id="tapPow" class="num">1,20 €</span></div>
+      <div class="stat"><span class="lbl">Goldbarren</span><span class="num"><span class="ingot" aria-hidden="true"></span><span id="barsN">0</span></span></div>
+      <div class="stat"><span class="lbl">Wiedergeburt</span><span id="rebStat" class="num">Lv 0 · ×1,00</span></div>
+    </div>
+  </header>
+
+  <section aria-label="Schürfen">
+    <div class="mine" id="mine" data-skin="0" data-deco="">
+      <button id="tapBtn" class="tap" type="button" aria-label="Münze gedrückt halten, um zu schürfen">
+        <span class="tap-sym" aria-hidden="true">€</span>
+        <span class="tap-sub" id="tapSub">+1,20 €</span>
+      </button>
+      <div class="floaters" id="floaters" aria-hidden="true"></div>
+    </div>
+    <p class="autoline" id="holdLine"></p>
+    <p class="autoline" id="autoLine"></p>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Bereiche">
+    <button class="tab" role="tab" id="t-up" aria-selected="true" aria-controls="p-up" type="button">Upgrades</button>
+    <button class="tab" role="tab" id="t-ord" aria-selected="false" aria-controls="p-ord" type="button">Aufträge<i class="pip" id="ordPip" hidden></i></button>
+    <button class="tab" role="tab" id="t-mkt" aria-selected="false" aria-controls="p-mkt" type="button">Handel</button>
+    <button class="tab" role="tab" id="t-reb" aria-selected="false" aria-controls="p-reb" type="button">Münze</button>
+    <button class="tab" role="tab" id="t-rank" aria-selected="false" aria-controls="p-rank" type="button"><span id="rankTabL">Rang</span></button>
+  </nav>
+
+  <section id="p-up" role="tabpanel" aria-labelledby="t-up">
+    <div class="buyqty"><span>Kaufmenge</span>
+      <div class="seg" id="qtySeg" role="group" aria-label="Kaufmenge">
+        <button type="button" data-q="1" aria-pressed="true">×1</button>
+        <button type="button" data-q="10" aria-pressed="false">×10</button>
+        <button type="button" data-q="max" aria-pressed="false">Max</button>
+      </div>
+    </div>
+    <ul class="list" id="upList"></ul>
+  </section>
+
+  <section id="p-ord" role="tabpanel" aria-labelledby="t-ord" hidden>
+    <div class="sec-h"><h2>Aufträge</h2><span class="num" id="ordDone">0 erledigt</span></div>
+    <p class="sec-p">Kunden bestellen, du lieferst. Die Fortschritte zählen von selbst mit. Wenn ein Auftrag fertig ist, holst du die Belohnung ab. Jeder fünfte Auftrag legt einen Goldbarren obendrauf.</p>
+    <ul class="list" id="ordList"></ul>
+  </section>
+
+  <section id="p-mkt" role="tabpanel" aria-labelledby="t-mkt" hidden>
+    <div class="sec-h"><h2>Goldhandel</h2><span class="num" id="mDelta"></span></div>
+    <p class="sec-p">Mit jedem Druck auf die Münze findest du mit 0,05 % Chance einen Goldbarren. Ein Barren ist so viel wert wie 1.000 Münzen. Der Kurs schwankt, für alle Spieler gleich.</p>
+    <div class="mkt-top">
+      <div><span class="lbl">Kurs pro Barren</span><span class="num big" id="mPrice">0 €</span><span class="sub" id="mTip"></span></div>
+      <div><span class="lbl">Dein Bestand</span><span class="num big" id="mHave">0</span><span class="sub num" id="mVal"></span></div>
+    </div>
+    <svg class="chart" id="mChart" viewBox="0 0 320 124" role="img" aria-label="Kursverlauf der letzten zehn Minuten">
+      <line class="cb" x1="8" x2="312" y1="56" y2="56"></line>
+      <polygon class="ca" id="mArea" points=""></polygon>
+      <polyline class="cl" id="mLine" points=""></polyline>
+      <circle class="cd" id="mDot" cx="312" cy="56" r="5"></circle>
+      <text x="8" y="120">vor 10 Min.</text>
+      <text x="312" y="120" text-anchor="end">jetzt</text>
+      <text x="312" y="50" text-anchor="end">Grundwert</text>
+    </svg>
+    <div class="trade">
+      <button class="buy" id="sell1" type="button"><span class="buy-l">1 verkaufen</span><span class="buy-c num" id="sell1c"></span></button>
+      <button class="buy" id="sellAll" type="button"><span class="buy-l">Alle verkaufen</span><span class="buy-c num" id="sellAllc"></span></button>
+      <button class="buy" id="buy1" type="button"><span class="buy-l">1 kaufen</span><span class="buy-c num" id="buy1c"></span></button>
+    </div>
+    <p class="hint">Kaufen kostet 10 % Aufschlag auf den Kurs. Der Wert eines Barrens wächst mit dem Wert deiner Münze. Wer einen Barren behält, wenn er die Münze verbessert, verdient mehr.</p>
+  </section>
+
+  <section id="p-reb" role="tabpanel" aria-labelledby="t-reb" hidden>
+    <div class="reb">
+      <h2>Wiedergeburt passiert von selbst</h2>
+      <p>Sobald du in einem Durchgang <b id="rebReqTxt"></b> verdient hast, startet die Grube automatisch neu. Geld und Upgrades gehen auf null. Goldbarren, Aufträge und deine Wiedergeburts-Stufen bleiben. Jede Stufe multipliziert alle Einnahmen mit 1,2 und schaltet eine bessere Münze mit stärkeren Klick-Effekten frei.</p>
+      <div class="rebgrid">
+        <div><span class="lbl">Aktuell</span><span class="num" id="rebNow">×1,00</span></div>
+        <div><span class="lbl">Nach der nächsten</span><span class="num" id="rebNext">×1,20</span></div>
+      </div>
+      <div>
+        <div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="lbl" style="margin:0">Verdient in diesem Durchgang</span><span class="num" id="rebProg" style="font-size:13px"></span></div>
+        <div class="bar" aria-hidden="true"><i id="rebBar"></i></div>
+      </div>
+      <p id="skinNext"></p>
+      <div class="skins" id="skinGrid"></div>
+      <p class="hint" style="margin:0">Die Rangliste zählt alles, was du je verdient hast. Die Wiedergeburt schadet deinem Rang nicht.</p>
+    </div>
+  </section>
+
+  <section id="p-rank" role="tabpanel" aria-labelledby="t-rank" hidden>
+    <div class="rank-h">
+      <h2 id="rankTitle">Rangliste</h2>
+      <div class="seg" id="modeSeg" role="group" aria-label="Modus">
+        <button type="button" data-m="solo" aria-pressed="true">Solo</button>
+        <button type="button" data-m="room" aria-pressed="false">Mit Freunden</button>
+      </div>
+    </div>
+
+    <div id="soloBox">
+      <ol class="rank" id="rankSolo"></ol>
+      <p class="hint">Die anderen Schürfer sind erfunden und wachsen nach festen Regeln. Gewertet wird alles, was du je verdient hast.</p>
+    </div>
+
+    <div id="roomBox" hidden>
+      <div id="roomJoin" class="form">
+        <label for="nameIn">Dein Name</label>
+        <input id="nameIn" maxlength="20" autocomplete="nickname" placeholder="z. B. Mia">
+        <label for="codeIn">Raumcode</label>
+        <input id="codeIn" maxlength="10" autocapitalize="characters" autocomplete="off" placeholder="z. B. K7M2Q">
+        <div class="row">
+          <button class="big-btn" id="joinBtn" type="button">Beitreten</button>
+          <button class="big-btn warn" id="newBtn" type="button">Neuen Raum erstellen</button>
+        </div>
+      </div>
+      <div id="roomLive" hidden>
+        <div class="roomhead">
+          <span>Raum <b class="num" id="roomCode"></b></span>
+          <span class="row"><button class="ghost" id="copyCode" type="button">Code kopieren</button><button class="ghost" id="leaveBtn" type="button">Verlassen</button></span>
+        </div>
+        <ol class="rank" id="rankRoom"></ol>
+      </div>
+      <p class="hint" id="roomNote"></p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>Geldgrube ist ein Spiel. Die Euro hier sind Spielgeld und haben keinen Wert. Dein Spielstand liegt auf diesem Gerät und, wenn der Online-Modus läuft, zusätzlich in der Cloud. Offline läuft die Grube bis zu 4 Stunden weiter.</p>
+    <div class="footrow">
+      <button class="ghost" id="saveBtn" type="button">Jetzt speichern</button>
+      <span id="saveInfo">Noch nicht gespeichert</span>
+    </div>
+    <details>
+      <summary>Spielstand als Code sichern oder laden</summary>
+      <textarea class="codearea" id="codeArea" aria-label="Spielstand-Code" spellcheck="false"></textarea>
+      <div class="footrow" style="margin-top:8px">
+        <button class="ghost" id="expBtn" type="button">Code erzeugen</button>
+        <button class="ghost" id="impBtn" type="button">Code laden</button>
+      </div>
+    </details>
+    <button class="reset" id="resetBtn" type="button">Spielstand zurücksetzen</button>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var KEY = 'geldgrube-spielstand-1', NAMEKEY = 'geldgrube-name-1', ROOMKEY = 'geldgrube-raum-1', ROOMON = 'geldgrube-raum-aktiv-1';
+  var BASE_TAP = 1.2;            /* Euro pro Klick am Anfang */
+  var CRIT_BASE = 0.000125;      /* 0,0125 % */
+  var CRIT_MULT = 100;
+  var REB_STEP = 1.2;            /* +20 % je Wiedergeburt, multiplikativ */
+  var REB_BASE = 600000, REB_GROWTH = 4.5, COSTK = 4;
+  var OFFLINE_MAX = 4 * 3600;
+  var BAR_CHANCE = 0.0005;        /* 0,1 % je Klick */
+  var BAR_MULT = 1000;           /* ein Barren = 1000 Münzen */
+  var SPREAD = 1.1;              /* Aufschlag beim Kaufen */
+  var HOLD_BASE = 3;             /* Klicks pro Sekunde beim Halten */
+  var MAX_ORD = 3;
+  var REDUCE = false;
+  try { REDUCE = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  var UPG = [
+    { id: 'spitz', g: 'Klick', name: 'Verstärkte Spitzhacke', kind: 'tap', val: 0.6, base: 15, growth: 1.32, note: 'Jeder Klick bringt mehr.' },
+    { id: 'hand', g: 'Klick', name: 'Goldene Handschuhe', kind: 'tap', val: 3.5, base: 350, growth: 1.4, note: 'Greifen fester zu.' },
+    { id: 'bohr', g: 'Klick', name: 'Diamantbohrer', kind: 'tap', val: 30, base: 8000, growth: 1.45, note: 'Schneidet durch jeden Fels.' },
+    { id: 'auto', g: 'Autoklicker', name: 'Autoklicker', kind: 'auto', val: 0.5, base: 60, growth: 1.22, note: 'Klickt für dich, auch wenn du schläfst.' },
+    { id: 'training', g: 'Autoklicker', name: 'Auto-Training', kind: 'train', val: 0.25, base: 400, growth: 1.5, note: 'Jeder Auto-Klick wiegt schwerer.' },
+    { id: 'gluck', g: 'Autoklicker', name: 'Glücksbringer', kind: 'luck', val: CRIT_BASE, base: 2500, growth: 1.6, max: 20, note: 'Mehr Glück bei ×100-Treffern und Goldbarren.' },
+    { id: 'schwein', g: 'Geschäfte', name: 'Sparschwein', kind: 'rate', rate: 0.2, base: 25, growth: 1.18, note: 'Klimpert leise vor sich hin.' },
+    { id: 'limo', g: 'Geschäfte', name: 'Limonadenstand', kind: 'rate', rate: 1, base: 120, growth: 1.18, note: 'Im Sommer ein Renner.' },
+    { id: 'kiosk', g: 'Geschäfte', name: 'Kiosk', kind: 'rate', rate: 6, base: 800, growth: 1.18, note: 'Lakritz, Zeitungen, Lottoscheine.' },
+    { id: 'wasch', g: 'Geschäfte', name: 'Waschsalon', kind: 'rate', rate: 30, base: 5000, growth: 1.18, note: 'Münzen rein, Münzen raus.' },
+    { id: 'baecker', g: 'Geschäfte', name: 'Bäckerei', kind: 'rate', rate: 160, base: 30000, growth: 1.18, note: 'Brötchen ab fünf Uhr früh.' },
+    { id: 'tank', g: 'Geschäfte', name: 'Tankstelle', kind: 'rate', rate: 900, base: 200000, growth: 1.18, note: 'Verdient am Kaffee mehr als am Sprit.' },
+    { id: 'hotel', g: 'Geschäfte', name: 'Hotel', kind: 'rate', rate: 5000, base: 1400000, growth: 1.18, note: 'Zimmer 12 ist immer belegt.' },
+    { id: 'kasino', g: 'Geschäfte', name: 'Kasino', kind: 'rate', rate: 28000, base: 10000000, growth: 1.18, note: 'Das Haus gewinnt.' },
+    { id: 'bank', g: 'Geschäfte', name: 'Bank', kind: 'rate', rate: 160000, base: 75000000, growth: 1.18, note: 'Zinsen auf Zinsen.' },
+    { id: 'oel', g: 'Geschäfte', name: 'Ölfeld', kind: 'rate', rate: 900000, base: 550000000, growth: 1.18, note: 'Es sprudelt.' },
+    { id: 'raum', g: 'Geschäfte', name: 'Raumstation', kind: 'rate', rate: 5000000, base: 4000000000, growth: 1.18, note: 'Schwerelose Gewinne.' },
+    { id: 'berater', g: 'Boni', name: 'Geschäftsberater', kind: 'passive', val: 0.10, base: 2000, growth: 1.9, note: 'Die Läden laufen runder.' },
+    { id: 'markt', g: 'Boni', name: 'Marketingkampagne', kind: 'global', val: 0.10, base: 15000, growth: 2.1, note: 'Mehr Kunden, größere Klicks.' },
+    { id: 'ruhig', g: 'Boni', name: 'Ruhige Hand', kind: 'hold', val: 1, base: 120, growth: 1.5, max: 14, note: 'Schneller Dauerdruck auf die Münze.' }
+  ];
+  var IDX = {};
+  UPG.forEach(function (u, i) { IDX[u.id] = i; });
+
+  /* Münzen je Wiedergeburts-Stufe: Aussehen und Klick-Effekt werden mit jeder Stufe besser */
+  var MIXSH = ['coin', 'star', 'gem', 'conf', 'spark'];
+  var SKINS = [
+    { n: 'Kupfer', e: 'Münzen hüpfen', s1: '#F6C3A0', s2: '#D0763F', s3: '#7C3A17', s4: '#F0A878', ink: '#3A1A08', glow: 'transparent', fb: '#4A2410', ft: '#FFE9D8', deco: '', fx: { n: 1, sh: 'coin', cols: ['#D0763F'] } },
+    { n: 'Silber', e: 'Silberfunken', s1: '#FFFFFF', s2: '#C7D0D9', s3: '#6F7C89', s4: '#F0F5FA', ink: '#1F2A33', glow: 'transparent', fb: '#26323C', ft: '#F2F6FA', deco: '', fx: { n: 3, sh: 'spark', cols: ['#FFFFFF', '#C7D0D9', '#9FB0C0'] } },
+    { n: 'Gold', e: 'Goldregen', s1: '#FFE08A', s2: '#F2BE3C', s3: '#A8731A', s4: '#FFD76A', ink: '#3B2A05', glow: 'rgba(242,190,60,.35)', fb: '#5B3C06', ft: '#FFF1C2', deco: '', fx: { n: 2, sh: 'coin', cols: ['#F2BE3C', '#FFD76A'] } },
+    { n: 'Smaragd', e: 'Edelstein-Splitter', s1: '#A6F7CF', s2: '#20C27E', s3: '#0A6B45', s4: '#6BEBB0', ink: '#032E1D', glow: 'rgba(32,194,126,.4)', fb: '#064A2F', ft: '#D4FFE9', deco: 'facet', fx: { n: 6, sh: 'gem', cols: ['#20C27E', '#6BEBB0', '#A6F7CF'] } },
+    { n: 'Rubin', e: 'Splitter und Druckwelle', s1: '#FFB3BF', s2: '#E02A4B', s3: '#7E0F26', s4: '#FF7A90', ink: '#3A0511', glow: 'rgba(224,42,75,.45)', fb: '#5C0A1D', ft: '#FFE0E6', deco: 'facet', fx: { n: 8, sh: 'gem', cols: ['#E02A4B', '#FF7A90', '#FFB3BF'], ring: 1 } },
+    { n: 'Saphir', e: 'Sterne und Druckwelle', s1: '#BFE0FF', s2: '#2F7BEA', s3: '#123F8F', s4: '#7DB6FF', ink: '#06193D', glow: 'rgba(47,123,234,.5)', fb: '#0C2B66', ft: '#DCEBFF', deco: 'facet', fx: { n: 8, sh: 'star', cols: ['#7DB6FF', '#BFE0FF', '#FFFFFF'], ring: 1 } },
+    { n: 'Platin', e: 'Glanzstreif und Sterne', s1: '#FFFFFF', s2: '#DDE6F0', s3: '#8794A6', s4: '#FFFFFF', ink: '#1A2430', glow: 'rgba(200,225,255,.7)', fb: '#1A2430', ft: '#F2F8FF', deco: 'shine', fx: { n: 10, sh: 'star', cols: ['#FFFFFF', '#BFD6F2', '#8FB5E8'], ring: 1 } },
+    { n: 'Regenbogen', e: 'Konfettiregen', s1: '#FFF2A8', s2: '#FF8A3D', s3: '#7A2F9E', s4: '#FFD3F0', ink: '#2A0A3A', glow: 'rgba(255,120,200,.55)', fb: '#3A0B4D', ft: '#FFF1FA', deco: 'conic', fx: { n: 14, sh: 'conf', cols: ['#FF4D6D', '#FFB02E', '#FFE14D', '#3DDC97', '#3DA5FF', '#B66DFF'], ring: 1 } },
+    { n: 'Kosmos', e: 'Sternenstaub, doppelte Welle', s1: '#5B4BC4', s2: '#1B1451', s3: '#0A0726', s4: '#8A7BFF', ink: '#E9E4FF', glow: 'rgba(138,123,255,.65)', fb: '#0A0726', ft: '#E9E4FF', deco: 'space', fx: { n: 14, sh: 'star', cols: ['#FFFFFF', '#B8AEFF', '#6FE7FF'], ring: 2 } },
+    { n: 'Legende', e: 'Alle Effekte zugleich', s1: '#FFFFFF', s2: '#FFD76A', s3: '#B3006B', s4: '#7DF9FF', ink: '#3A0A2A', glow: 'rgba(255,120,220,.8)', fb: '#3A0A2A', ft: '#FFFFFF', deco: 'holo', fx: { n: 18, sh: 'mix', cols: ['#FF4D6D', '#FFE14D', '#3DDC97', '#7DF9FF', '#B66DFF', '#FFFFFF'], ring: 2 } }
+  ];
+
+  var CLIENTS = ['Familie Schulz', 'Bäckerei Krüger', 'Kiosk-Opa Horst', 'Stadtwerke Nord', 'Hotel Seeblick', 'Frau Dr. Becker', 'Fahrschule Lenz', 'Juwelier Adler'];
+  var OTYPES = ['earn', 'taps', 'buys', 'own', 'bar', 'sold', 'crit', 'deliver'];
+
+  var BOTS = [
+    ['Sparfuchs Silke', 80, 6],
+    ['Nachtschicht Nils', 30, 14],
+    ['Kumpel Karl', 200, 4],
+    ['Börsen-Bernd', 900, 9],
+    ['Rolf Rendite', 50, 30],
+    ['Dagobert Dieter', 2500, 18],
+    ['Pfennig-Paula', 10, 2.4],
+    ['Tim Tagebau', 150, 7]
+  ];
+
+  function fresh() {
+    var n = Date.now();
+    return {
+      coins: 0, total: 0, life: 0, taps: 0, reb: 0, lv: UPG.map(function () { return 0; }), start: n, last: n,
+      bars: 0, bbc: 0,
+      st: { taps: 0, buys: 0, bars: 0, sold: 0, crits: 0, deals: 0 },
+      ord: [], oseq: 0
+    };
+  }
+  function nn(v) { v = +v; return isFinite(v) && v > 0 ? v : 0; }
+  function norm(o) {
+    if (!o || typeof o !== 'object' || typeof o.coins !== 'number') return null;
+    var f = fresh();
+    f.coins = Math.max(0, +o.coins || 0);
+    f.total = Math.max(0, +o.total || 0);
+    f.life = Math.max(+o.life || 0, f.total);
+    f.taps = +o.taps || 0;
+    f.reb = Math.max(0, Math.floor(+o.reb || 0));
+    f.start = +o.start || f.start;
+    f.last = +o.last || f.last;
+    if (Array.isArray(o.lv)) for (var i = 0; i < UPG.length; i++) f.lv[i] = Math.max(0, Math.floor(+o.lv[i] || 0));
+    f.bars = Math.floor(nn(o.bars));
+    f.bbc = f.bars > 0 ? nn(o.bbc) : 0;
+    if (o.st && typeof o.st === 'object') {
+      for (var k in f.st) if (Object.prototype.hasOwnProperty.call(f.st, k)) f.st[k] = nn(o.st[k]);
+    }
+    f.oseq = Math.floor(nn(o.oseq));
+    if (Array.isArray(o.ord)) {
+      o.ord.slice(0, MAX_ORD).forEach(function (q) {
+        if (!q || OTYPES.indexOf(q.tp) < 0) return;
+        var ix = Math.floor(nn(q.ix));
+        if (q.tp === 'own' && (ix >= UPG.length || UPG[ix].kind !== 'rate')) return;
+        var tgt = nn(q.tgt);
+        if (tgt < 1) return;
+        f.ord.push({ id: Math.floor(nn(q.id)), tp: q.tp, cl: Math.floor(nn(q.cl)) % CLIENTS.length, ix: ix, tgt: tgt, base: nn(q.base), rw: nn(q.rw), rb: q.rb ? 1 : 0 });
+      });
+    }
+    return f;
+  }
+  function loadLocal() {
+    try { var raw = localStorage.getItem(KEY); return raw ? norm(JSON.parse(raw)) : null; } catch (e) { return null; }
+  }
+  function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  var S = loadLocal() || fresh();
+  var acc = 0, buyMode = '1';
+
+  /* Zahlen */
+  var UNITS = [[1e21, ' Trd.'], [1e18, ' Trio.'], [1e15, ' Brd.'], [1e12, ' Bio.'], [1e9, ' Mrd.'], [1e6, ' Mio.']];
+  var nf0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 });
+  var nf2 = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var nf1 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
+  var nf4 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 4 });
+  function eur(n, whole) {
+    if (!isFinite(n)) return '∞ €';
+    if (n < 0) n = 0;
+    for (var i = 0; i < UNITS.length; i++) if (n >= UNITS[i][0]) return nf2.format(n / UNITS[i][0]) + UNITS[i][1] + ' €';
+    if (whole || n >= 100000) return nf0.format(Math.floor(n)) + ' €';
+    return nf2.format(n) + ' €';
+  }
+  function plain(n) {
+    for (var i = 0; i < UNITS.length; i++) if (n >= UNITS[i][0]) return nf2.format(n / UNITS[i][0]) + UNITS[i][1];
+    return nf2.format(n);
+  }
+  function nice(n) {
+    if (!isFinite(n) || n < 10) return Math.max(1, Math.round(n || 1));
+    var p = Math.pow(10, Math.floor(Math.log(n) / Math.LN10) - 1);
+    return Math.round(n / p) * p;
+  }
+
+  /* Spielregeln */
+  function lvl(id) { return S.lv[IDX[id]] || 0; }
+  function rebMult() { return Math.pow(REB_STEP, S.reb); }
+  function globalMult() { return rebMult() * (1 + 0.10 * lvl('markt')); }
+  function tapValue() {
+    var b = BASE_TAP;
+    for (var i = 0; i < UPG.length; i++) if (UPG[i].kind === 'tap') b += UPG[i].val * S.lv[i];
+    return b * globalMult();
+  }
+  function autoValue() { return tapValue() * (1 + 0.25 * lvl('training')); }
+  function cps() { return 0.5 * lvl('auto'); }
+  function holdRate() { return HOLD_BASE + lvl('ruhig'); }
+  function critChance() { return CRIT_BASE * (1 + lvl('gluck')); }
+  function barChance() { return BAR_CHANCE * (1 + 0.05 * lvl('gluck')); }
+  function passive() {
+    var r = 0;
+    for (var i = 0; i < UPG.length; i++) if (UPG[i].kind === 'rate') r += UPG[i].rate * S.lv[i];
+    return r * (1 + 0.10 * lvl('berater')) * globalMult();
+  }
+  function autoExpected() { return cps() * autoValue() * (1 + critChance() * (CRIT_MULT - 1)); }
+  function income() { return passive() + autoExpected(); }
+  function pace() { return Math.max(2, income() + tapValue() * holdRate() * 0.5); }
+  function rebReq() { return REB_BASE * Math.pow(REB_GROWTH, S.reb); }
+  function add(g) { S.coins += g; S.total += g; S.life += g; }
+  function cashIn(p, cost) { var gain = Math.max(0, p - cost); S.coins += p; S.total += gain; S.life += gain; }
+  function costOf(i, lv) { return Math.ceil(UPG[i].base * COSTK * Math.pow(UPG[i].growth, lv)); }
+  function skinIdx() { return Math.min(S.reb, SKINS.length - 1); }
+
+  function bulk(i) {
+    var u = UPG[i], lv = S.lv[i], n = 0, c = 0;
+    var want = buyMode === '1' ? 1 : buyMode === '10' ? 10 : 500;
+    var lim = u.max ? u.max - lv : Infinity;
+    while (n < want && n < lim) {
+      var nx = costOf(i, lv + n);
+      if (buyMode === 'max' && c + nx > S.coins) break;
+      c += nx; n++;
+    }
+    if (n === 0 && lim > 0) { n = 1; c = costOf(i, lv); }
+    return { n: n, c: c, maxed: lim <= 0 };
+  }
+
+  /* Goldmarkt: der Kurs hängt nur von der Uhrzeit ab, darum sehen alle Spieler denselben Preis */
+  function mkt(ms) {
+    var s = ms / 1000;
+    return 1 + 0.28 * Math.sin(s / 173 + 0.6) + 0.18 * Math.sin(s / 59 + 2.1) + 0.09 * Math.sin(s / 17 + 4.2);
+  }
+  function barPrice() { return BAR_MULT * tapValue() * mkt(Date.now()); }
+  function avgCost() { return S.bars > 0 ? S.bbc / S.bars : 0; }
+  function sellBars(n) {
+    n = Math.min(n, S.bars);
+    if (n < 1) return;
+    var p = barPrice() * n, c = avgCost() * n;
+    S.bars -= n; S.bbc = S.bars > 0 ? Math.max(0, S.bbc - c) : 0;
+    cashIn(p, c);
+    S.st.sold += n; AU.sfx('sell');
+    toast(n + (n === 1 ? ' Goldbarren' : ' Goldbarren') + ' verkauft: +' + eur(p, true));
+    afterChange();
+  }
+  function buyBar() {
+    var c = barPrice() * SPREAD;
+    if (S.coins < c) return;
+    S.coins -= c; S.bars++; S.bbc += c; AU.sfx('buy');
+    toast('Goldbarren gekauft für ' + eur(c, true) + '.');
+    afterChange();
+  }
+  function afterChange() { render(); saveLocal(); markDirty(); }
+
+  /* Elemente */
+  var $ = function (id) { return document.getElementById(id); };
+  var coinsEl = $('coins'), rateEl = $('rate'), tapPowEl = $('tapPow'), rebStat = $('rebStat'), barsEl = $('barsN');
+  var tapBtn = $('tapBtn'), tapSub = $('tapSub'), mine = $('mine'), floaters = $('floaters'), autoLine = $('autoLine'), holdLine = $('holdLine');
+  var upList = $('upList'), toastEl = $('toast'), saveInfo = $('saveInfo');
+  var rebNow = $('rebNow'), rebNext = $('rebNext'), rebProg = $('rebProg'), rebBar = $('rebBar');
+
+  /* Upgrade-Zeilen einmal aufbauen */
+  var rows = [];
+  var lastGroup = '';
+  UPG.forEach(function (u, i) {
+    if (u.g !== lastGroup) {
+      var h = document.createElement('li');
+      h.className = 'grp'; h.textContent = u.g;
+      upList.appendChild(h);
+      lastGroup = u.g;
+    }
+    var li = document.createElement('li');
+    li.className = 'up';
+    li.dataset.i = i;
+    li.innerHTML =
+      '<div class="up-info"><div class="up-name"><span class="n"></span><span class="lv"></span></div><div class="up-desc"></div></div>' +
+      '<button class="buy" type="button"><span class="buy-l">Kaufen</span><span class="buy-c num"></span></button>';
+    upList.appendChild(li);
+    rows.push({
+      name: li.querySelector('.n'), lv: li.querySelector('.lv'), desc: li.querySelector('.up-desc'),
+      btn: li.querySelector('.buy'), bl: li.querySelector('.buy-l'), cost: li.querySelector('.buy-c')
+    });
+    rows[i].name.textContent = u.name;
+  });
+
+  function effectText(i) {
+    var u = UPG[i], gm = globalMult();
+    switch (u.kind) {
+      case 'tap': return '+' + eur(u.val * gm) + ' pro Klick.';
+      case 'auto': return '+0,5 Klicks pro Sekunde, aktuell ' + nf1.format(cps()) + '/s.';
+      case 'train': return '+25 % Auto-Klick-Wert, aktuell +' + (S.lv[i] * 25) + ' %.';
+      case 'luck': return '+0,0125 Prozentpunkte Chance auf ×100, aktuell ' + nf4.format(critChance() * 100) + ' %. Barren-Chance aktuell ' + nf4.format(barChance() * 100) + ' %.';
+      case 'rate': return '+' + eur(u.rate * (1 + 0.10 * lvl('berater')) * gm) + '/s je Stück.';
+      case 'passive': return '+10 % auf alle Geschäfte, aktuell +' + (S.lv[i] * 10) + ' %.';
+      case 'global': return '+10 % auf alles, aktuell +' + (S.lv[i] * 10) + ' %.';
+      case 'hold': return '+1 Klick pro Sekunde beim Halten, aktuell ' + nf1.format(holdRate()) + '/s.';
+    }
+    return '';
+  }
+
+  /* Aufträge */
+  function ensureOrders() {
+    var guard = 0;
+    while (S.ord.length < MAX_ORD && guard++ < 10) S.ord.push(genOrder(S.ord.map(function (o) { return o.tp; })));
+  }
+  function genOrder(avoid) {
+    var ok = OTYPES.filter(function (t) {
+      if (avoid.indexOf(t) >= 0) return false;
+      if (t === 'crit') return cps() > 0;
+      if (t === 'sold') return S.bars > 0;
+      if (t === 'deliver') return S.st.bars > 0 || S.life > 5000;
+      return true;
+    });
+    if (!ok.length) ok = ['earn', 'taps', 'buys'];
+    var tp = ok[(Math.random() * ok.length) | 0];
+    var o = { id: ++S.oseq, tp: tp, cl: (Math.random() * CLIENTS.length) | 0, ix: 0, tgt: 1, base: 0, rw: 0, rb: 0 };
+    var p = pace(), tv = tapValue();
+    switch (tp) {
+      case 'earn': o.tgt = nice(p * 150); o.base = S.life; o.rw = nice(o.tgt * 0.35); break;
+      case 'taps': o.tgt = nice(120 + Math.random() * 180); o.base = S.st.taps; o.rw = nice(o.tgt * tv * 2); break;
+      case 'buys': o.tgt = 3 + ((Math.random() * 5) | 0); o.base = S.st.buys; o.rw = nice(p * 45 + 30); break;
+      case 'own':
+        var rs = [], cand;
+        UPG.forEach(function (u, i) { if (u.kind === 'rate') rs.push(i); });
+        cand = rs.filter(function (i) { return S.lv[i] > 0; });
+        if (!cand.length) cand = [rs[0]];
+        o.ix = cand[(Math.random() * cand.length) | 0];
+        o.tgt = S.lv[o.ix] + 2 + ((Math.random() * 3) | 0);
+        o.rw = nice(costOf(o.ix, S.lv[o.ix]) * 3);
+        break;
+      case 'bar': o.tgt = 1; o.base = S.st.bars; o.rw = nice(BAR_MULT * tv * 0.6); break;
+      case 'sold': o.tgt = 1 + ((Math.random() * 2) | 0); o.base = S.st.sold; o.rw = nice(o.tgt * BAR_MULT * tv * 0.4); break;
+      case 'crit': o.tgt = 1; o.base = S.st.crits; o.rw = nice(p * 70 + 100); break;
+      case 'deliver': o.tgt = 1 + ((Math.random() * 3) | 0); o.rw = nice(o.tgt * BAR_MULT * tv * 1.4); break;
+    }
+    o.rb = (o.id % 5 === 0 && tp !== 'deliver') ? 1 : 0;
+    return o;
+  }
+  function oprog(o) {
+    var v = 0;
+    switch (o.tp) {
+      case 'earn': v = S.life - o.base; break;
+      case 'taps': v = S.st.taps - o.base; break;
+      case 'buys': v = S.st.buys - o.base; break;
+      case 'own': v = S.lv[o.ix]; break;
+      case 'bar': v = S.st.bars - o.base; break;
+      case 'sold': v = S.st.sold - o.base; break;
+      case 'crit': v = S.st.crits - o.base; break;
+      case 'deliver': v = S.bars; break;
+    }
+    return Math.max(0, Math.min(o.tgt, v));
+  }
+  function otitle(o) {
+    switch (o.tp) {
+      case 'earn': return 'Verdiene ' + eur(o.tgt, true);
+      case 'taps': return 'Sammle ' + nf0.format(o.tgt) + ' Klicks mit gedrückter Münze';
+      case 'buys': return 'Kaufe ' + o.tgt + ' Upgrades';
+      case 'own': return 'Bringe „' + UPG[o.ix].name + '“ auf Stufe ' + o.tgt;
+      case 'bar': return 'Finde einen Goldbarren';
+      case 'sold': return o.tgt === 1 ? 'Verkaufe einen Goldbarren' : 'Verkaufe ' + o.tgt + ' Goldbarren';
+      case 'crit': return 'Lande einen ×100-Treffer';
+      case 'deliver': return 'Liefere ' + (o.tgt === 1 ? 'einen Goldbarren' : o.tgt + ' Goldbarren');
+    }
+    return '';
+  }
+  function ptext(o, v) {
+    return o.tp === 'earn' ? eur(v, true) + ' von ' + eur(o.tgt, true) : nf0.format(Math.floor(v)) + ' von ' + nf0.format(o.tgt);
+  }
+  var prevReady = 0, ordRows = [], ordKey = '', ordList = $('ordList');
+  function buildOrders() {
+    ordList.textContent = '';
+    ordRows = [];
+    S.ord.forEach(function (o) {
+      var li = document.createElement('li');
+      li.className = 'ord';
+      var main = document.createElement('div');
+      var t = document.createElement('div'); t.className = 'ord-t'; t.textContent = otitle(o);
+      var c = document.createElement('div'); c.className = 'ord-c';
+      c.textContent = CLIENTS[o.cl] + ' zahlt ' + eur(o.rw, true) + (o.rb ? ' und legt einen Goldbarren drauf' : '') + '.';
+      var bar = document.createElement('div'); bar.className = 'bar'; bar.setAttribute('aria-hidden', 'true');
+      var fill = document.createElement('i'); bar.appendChild(fill);
+      var p = document.createElement('div'); p.className = 'ord-p num';
+      main.appendChild(t); main.appendChild(c); main.appendChild(bar); main.appendChild(p);
+      var btns = document.createElement('div'); btns.className = 'ord-btns';
+      var claim = document.createElement('button'); claim.type = 'button'; claim.className = 'buy claim'; claim.dataset.oid = o.id;
+      var cl = document.createElement('span'); cl.className = 'buy-l'; cl.textContent = o.tp === 'deliver' ? 'Liefern' : 'Abholen';
+      claim.appendChild(cl);
+      var skip = document.createElement('button'); skip.type = 'button'; skip.className = 'mini skip'; skip.dataset.oid = o.id; skip.textContent = 'Tauschen';
+      btns.appendChild(claim); btns.appendChild(skip);
+      li.appendChild(main); li.appendChild(btns);
+      ordList.appendChild(li);
+      ordRows.push({ li: li, fill: fill, prog: p, btn: claim });
+    });
+  }
+  function renderOrders() {
+    var key = S.ord.map(function (o) { return o.id; }).join(',');
+    if (key !== ordKey) { buildOrders(); ordKey = key; }
+    var ready = 0;
+    S.ord.forEach(function (o, i) {
+      var r = ordRows[i]; if (!r) return;
+      var v = oprog(o), done = v >= o.tgt;
+      r.fill.style.width = (o.tgt > 0 ? v / o.tgt * 100 : 0) + '%';
+      r.prog.textContent = ptext(o, v);
+      r.li.classList.toggle('ready', done);
+      r.btn.disabled = !done;
+      if (done) ready++;
+    });
+    $('ordPip').hidden = ready === 0; if (ready > prevReady) AU.sfx('ready'); prevReady = ready;
+    $('ordDone').textContent = nf0.format(S.st.deals) + ' erledigt';
+  }
+  ordList.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b || b.disabled) return;
+    var id = +b.dataset.oid, i = -1;
+    for (var k = 0; k < S.ord.length; k++) if (S.ord[k].id === id) i = k;
+    if (i < 0) return;
+    var o = S.ord[i];
+    if (b.classList.contains('skip')) { AU.sfx('skip');
+      S.ord.splice(i, 1); ensureOrders(); afterChange();
+      return;
+    }
+    if (oprog(o) < o.tgt) return;
+    if (o.tp === 'deliver') {
+      var c = avgCost() * o.tgt;
+      S.bars -= o.tgt; S.bbc = S.bars > 0 ? Math.max(0, S.bbc - c) : 0;
+      cashIn(o.rw, c);
+    } else add(o.rw);
+    if (o.rb) S.bars += 1;
+    S.st.deals++; AU.sfx('order');
+    S.ord.splice(i, 1); ensureOrders();
+    toast('Auftrag erledigt: +' + eur(o.rw, true) + (o.rb ? ' und ein Goldbarren' : '') + '.', 4000);
+    afterChange();
+  });
+
+  /* Goldmarkt anzeigen */
+  function drawChart() {
+    var now = Date.now(), N = 60, X0 = 8, W = 304, Y0 = 104, H = 96, pts = [], i, f, x, y;
+    for (i = 0; i <= N; i++) {
+      f = mkt(now - (N - i) * 10000);
+      x = X0 + i * W / N; y = Y0 - (f - 0.4) / 1.2 * H;
+      pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    $('mLine').setAttribute('points', pts.join(' '));
+    $('mArea').setAttribute('points', pts.join(' ') + ' ' + (X0 + W) + ',' + Y0 + ' ' + X0 + ',' + Y0);
+    var last = pts[N].split(',');
+    $('mDot').setAttribute('cx', last[0]); $('mDot').setAttribute('cy', last[1]);
+  }
+  function renderMarket() {
+    var f = mkt(Date.now()), price = barPrice(), pct = Math.round((f - 1) * 100);
+    $('mPrice').textContent = eur(price, true);
+    $('mDelta').textContent = (pct >= 0 ? '+' : '−') + Math.abs(pct) + ' % zum Grundwert';
+    $('mTip').textContent = f > 1.2 ? 'Hoch. Guter Moment zum Verkaufen.' : f < 0.8 ? 'Tief. Guter Moment zum Kaufen.' : 'Normaler Kurs.';
+    $('mHave').textContent = nf0.format(S.bars);
+    $('mVal').textContent = 'Wert ' + eur(S.bars * price, true);
+    $('sell1c').textContent = eur(price, true);
+    $('sellAllc').textContent = eur(price * S.bars, true);
+    $('buy1c').textContent = eur(price * SPREAD, true);
+    $('sell1').disabled = S.bars < 1;
+    $('sellAll').disabled = S.bars < 1;
+    $('buy1').disabled = S.coins < price * SPREAD;
+    drawChart();
+  }
+  $('sell1').addEventListener('click', function () { sellBars(1); });
+  $('sellAll').addEventListener('click', function () { sellBars(S.bars); });
+  $('buy1').addEventListener('click', buyBar);
+
+  /* Münzen */
+  var skinEls = [], lastSkinReb = -1;
+  function skinVars(el, s) {
+    el.style.setProperty('--s1', s.s1); el.style.setProperty('--s2', s.s2); el.style.setProperty('--s3', s.s3); el.style.setProperty('--s4', s.s4);
+  }
+  function buildSkins() {
+    var g = $('skinGrid'); g.textContent = ''; skinEls = [];
+    SKINS.forEach(function (s, i) {
+      var d = document.createElement('div'); d.className = 'skin';
+      var sw = document.createElement('span'); sw.className = 'sw'; skinVars(sw, s);
+      var nm = document.createElement('span'); nm.className = 'sn'; nm.textContent = s.n;
+      var se = document.createElement('span'); se.className = 'se';
+      d.appendChild(sw); d.appendChild(nm); d.appendChild(se);
+      g.appendChild(d);
+      skinEls.push({ d: d, se: se, i: i });
+    });
+  }
+  function renderSkins() {
+    var k = skinIdx();
+    skinEls.forEach(function (e) {
+      var locked = e.i > S.reb;
+      e.d.classList.toggle('lock', locked);
+      e.d.classList.toggle('on', e.i === k);
+      e.se.textContent = (locked ? 'ab Stufe ' : 'Stufe ') + e.i + ' · ' + SKINS[e.i].e;
+    });
+    var nx = $('skinNext');
+    nx.textContent = S.reb + 1 < SKINS.length
+      ? 'Aktuelle Münze: ' + SKINS[k].n + '. Nach der nächsten Wiedergeburt: ' + SKINS[S.reb + 1].n + '.'
+      : 'Aktuelle Münze: ' + SKINS[k].n + '. Das ist die höchste Münze. Die Einnahmen steigen mit jeder Stufe weiter.';
+  }
+  function applySkin() {
+    var k = skinIdx(), s = SKINS[k], st = mine.style;
+    st.setProperty('--s1', s.s1); st.setProperty('--s2', s.s2); st.setProperty('--s3', s.s3); st.setProperty('--s4', s.s4);
+    st.setProperty('--sink', s.ink); st.setProperty('--sglow', s.glow); st.setProperty('--sfb', s.fb); st.setProperty('--sft', s.ft);
+    mine.setAttribute('data-deco', s.deco); mine.setAttribute('data-skin', String(k));
+    tapBtn.setAttribute('aria-label', 'Münze ' + s.n + ' gedrückt halten, um zu schürfen');
+  }
+
+  function render() {
+    var tv = tapValue();
+    coinsEl.textContent = eur(S.coins);
+    rateEl.textContent = eur(income()) + '/s';
+    tapPowEl.textContent = eur(tv);
+    barsEl.textContent = nf0.format(S.bars);
+    rebStat.textContent = 'Lv ' + S.reb + ' · ×' + plain(rebMult());
+    tapSub.textContent = '+' + eur(tv);
+    holdLine.textContent = 'Münze gedrückt halten: ' + nf1.format(holdRate()) + ' Klicks/s · 0,05 % Chance auf einen Goldbarren';
+    autoLine.textContent = cps() > 0
+      ? 'Autoklicker: ' + nf1.format(cps()) + ' Klicks/s à ' + eur(autoValue()) + ' · ' + nf4.format(critChance() * 100) + ' % Chance auf ×100'
+      : 'Kaufe den Autoklicker, dann klickt die Grube allein.';
+    for (var i = 0; i < UPG.length; i++) {
+      var r = rows[i], b = bulk(i);
+      r.lv.textContent = S.lv[i] > 0 ? 'Stufe ' + S.lv[i] : 'neu';
+      r.desc.textContent = effectText(i) + ' ' + UPG[i].note;
+      if (b.maxed) {
+        r.bl.textContent = 'Maximum'; r.cost.textContent = '';
+        r.btn.disabled = true;
+      } else {
+        r.bl.textContent = b.n > 1 ? 'Kaufen ×' + b.n : 'Kaufen';
+        r.cost.textContent = eur(b.c, true);
+        r.btn.disabled = S.coins < b.c;
+      }
+    }
+    renderOrders();
+    if (!$('p-mkt').hidden) renderMarket();
+    renderReb();
+  }
+
+  function renderReb() {
+    var req = rebReq();
+    rebNow.textContent = '×' + plain(rebMult());
+    rebNext.textContent = '×' + plain(rebMult() * REB_STEP);
+    rebProg.textContent = eur(S.total, true) + ' von ' + eur(req, true);
+    rebBar.style.width = Math.min(100, S.total / req * 100) + '%';
+    $('rebReqTxt').textContent = eur(req, true);
+    if (S.reb !== lastSkinReb) { lastSkinReb = S.reb; renderSkins(); }
+  }
+
+  /* Automatische Wiedergeburt */
+  function checkReb() {
+    if (S.total < rebReq()) return;
+    AU.sfx('reb'); S.reb++; S.coins = 0; S.total = 0; S.taps = 0; acc = 0;
+    S.lv = UPG.map(function () { return 0; });
+    applySkin();
+    var r = mine.getBoundingClientRect();
+    tapBtn.classList.remove('flash'); void tapBtn.offsetWidth; tapBtn.classList.add('flash');
+    spawn(skinIdx(), r.width / 2, r.height * 0.46, 3);
+    ensureOrders();
+    render(); renderRank(); saveLocal(); cloudSave(true); pushScore(true); pushPresence(true);
+    toast('Automatische Wiedergeburt! Neue Münze: ' + SKINS[skinIdx()].n + '. Alle Einnahmen sind jetzt ×' + plain(rebMult()) + '.', 6000);
+  }
+
+  /* Rangliste */
+  var rankMode = 'solo';
+  var room = { code: '', gen: 0, nr: null, offPeers: null, offConn: null, unsub: null, slowT: 0, peers: [], dbPlayers: [], loaded: false, err: '', dbErr: '', slow: false, connected: false };
+  function fillRank(ol, list) {
+    ol.textContent = '';
+    var myPos = 0;
+    list.forEach(function (r, i) {
+      var li = document.createElement('li');
+      li.className = 'r' + (r.me ? ' me' : '');
+      var p = document.createElement('span'); p.className = 'pos'; p.textContent = String(i + 1);
+      var w = document.createElement('span'); w.className = 'who';
+      if (r.on !== undefined) { var d = document.createElement('span'); d.className = 'dot' + (r.on ? ' on' : ''); w.appendChild(d); }
+      w.appendChild(document.createTextNode(r.me ? 'Du' + (r.n ? ' (' + r.n + ')' : '') : r.n));
+      if (r.reb) { var sm = document.createElement('small'); sm.textContent = 'Lv ' + r.reb; w.appendChild(sm); }
+      var s = document.createElement('span'); s.className = 'sc num'; s.textContent = eur(r.s);
+      li.appendChild(p); li.appendChild(w); li.appendChild(s);
+      ol.appendChild(li);
+      if (r.me) myPos = i + 1;
+    });
+    return myPos;
+  }
+  function myName() { var v = ($('nameIn').value || '').trim().slice(0, 20); return v || 'Schürfer'; }
+
+  function rankList() {
+    var now = Date.now(), map = {};
+    room.dbPlayers.forEach(function (p) {
+      if (uid && p.id === uid) return;
+      map[p.id] = { n: p.name, s: p.life, reb: p.reb, on: now - p.t < 45000 };
+    });
+    room.peers.forEach(function (pe) {
+      if (pe.isMe || pe.kind !== 'viewer') return;
+      var pr = pe.presence || {}, key = pe.by || pe.peer;
+      var s = nn(pr.l), rb = Math.floor(nn(pr.r)), nm = String(pr.n || '').slice(0, 20) || 'Schürfer';
+      var cur = map[key];
+      if (cur) { cur.on = true; cur.s = Math.max(cur.s, s); cur.n = nm; cur.reb = Math.max(cur.reb, rb); }
+      else map[key] = { n: nm, s: s, reb: rb, on: true };
+    });
+    var list = Object.keys(map).map(function (k) { return map[k]; });
+    list.push({ n: myName(), s: S.life, me: true, reb: S.reb, on: true });
+    list.sort(function (a, b) { return b.s - a.s; });
+    return list;
+  }
+
+  function renderRank() {
+    var el = Math.max(0, (Date.now() - S.start) / 1000);
+    var sl = BOTS.map(function (b) { return { n: b[0], s: b[1] + b[2] * Math.pow(el, 1.25) }; });
+    sl.push({ n: '', s: S.life, me: true, reb: S.reb });
+    sl.sort(function (a, b) { return b.s - a.s; });
+    var vis = !$('p-rank').hidden, soloPos = 0;
+    if (rankMode === 'solo' && vis) soloPos = fillRank($('rankSolo'), sl);
+    else sl.forEach(function (r, i) { if (r.me) soloPos = i + 1; });
+
+    var place = soloPos;
+    if (rankMode === 'room' && room.code) {
+      var rl = rankList(), rp = 0;
+      if (vis) rp = fillRank($('rankRoom'), rl);
+      else rl.forEach(function (r, i) { if (r.me) rp = i + 1; });
+      place = rp;
+    }
+    $('rankTitle').textContent = 'Rangliste · Platz ' + place;
+    $('rankTabL').textContent = 'Rang ' + place;
+    renderRoomNote();
+  }
+
+  function renderRoomNote() {
+    var t = '', online = !!(capRoom || capDb);
+    if (!online) t = 'Der Online-Modus ist gerade nicht verfügbar. Prüfe deine Internetverbindung. Solo spielst du immer.';
+    else if (room.code) {
+      if (room.err === 'not_permitted' || room.err === 'not_granted') t = 'Dieser Zugang darf dem Raum nicht beitreten. Der Ersteller muss dich in der Freigabe der Seite einladen.';
+      else if (room.err) t = 'Der Raum ist gerade nicht erreichbar (' + room.err + '). Dein Spiel läuft weiter.';
+      else if (capRoom && !room.connected && room.slow) t = 'Verbindung zum Raum wird aufgebaut. Dein Spiel läuft weiter.';
+      else t = 'Schick deinen Freunden den Link zur Geldgrube und den Code ' + room.code + '. Grüner Punkt: gerade online.' +
+        (dbOK() ? ' Dein Punktestand bleibt auch gespeichert, wenn du die Seite schließt.' : ' Dein Punktestand erscheint, solange du die Seite offen hast.');
+    } else t = 'Erstelle einen Raum oder gib den Code deiner Freunde ein. Alle im Raum treten um den höchsten Gesamtverdienst an.';
+    $('roomNote').textContent = t;
+    $('joinBtn').disabled = !online; $('newBtn').disabled = !online;
+  }
+
+  /* Hinweis */
+  var toastT;
+  function toast(msg, ms) {
+    toastEl.textContent = msg;
+    toastEl.hidden = false;
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { toastEl.hidden = true; }, ms || 4500);
+  }
+
+  /* Effekte */
+  function hop(big, delay) {
+    var c = document.createElement('span');
+    c.className = 'coin' + (big ? ' big' : '');
+    c.textContent = '€';
+    var spread = big ? 150 : 95, t = 0.75 + Math.random() * 0.35;
+    c.style.setProperty('--dx', ((Math.random() * 2 - 1) * spread).toFixed(0) + 'px');
+    c.style.setProperty('--up', (-(95 + Math.random() * 75) * (big ? 1.3 : 1)).toFixed(0) + 'px');
+    c.style.setProperty('--down', (45 + Math.random() * 35).toFixed(0) + 'px');
+    c.style.setProperty('--t', t.toFixed(2) + 's');
+    if (delay) c.style.animationDelay = delay + 'ms';
+    while (floaters.querySelectorAll('.coin').length > 26) floaters.removeChild(floaters.querySelector('.coin'));
+    floaters.appendChild(c);
+    setTimeout(function () { if (c.parentNode) c.parentNode.removeChild(c); }, t * 1000 + (delay || 0) + 120);
+  }
+  function trim() { while (floaters.childElementCount > 90) floaters.removeChild(floaters.firstChild); }
+  function floater(x, y, text) {
+    var f = document.createElement('span');
+    f.className = 'fl'; f.textContent = text;
+    f.style.left = x + 'px'; f.style.top = y + 'px';
+    while (floaters.querySelectorAll('.fl').length > 8) floaters.removeChild(floaters.querySelector('.fl'));
+    floaters.appendChild(f);
+    setTimeout(function () { if (f.parentNode) f.parentNode.removeChild(f); }, 850);
+  }
+  var ringTick = 0;
+  function spawn(tier, x, y, boost) {
+    if (REDUCE) return;
+    var f = SKINS[tier].fx, n = Math.max(1, Math.round(f.n * boost)), i;
+    if (x == null) { var r = mine.getBoundingClientRect(); x = r.width / 2; y = r.height * 0.46; }
+    if (f.sh === 'coin') {
+      for (i = 0; i < n; i++) hop(boost > 1.5, i * 60);
+      return;
+    }
+    for (i = 0; i < n; i++) {
+      var sh = f.sh === 'mix' ? MIXSH[(Math.random() * MIXSH.length) | 0] : f.sh;
+      var el = document.createElement('span');
+      el.className = 'pt pt-' + sh;
+      var ang = Math.random() * Math.PI * 2, dist = 40 + Math.random() * (60 + tier * 12) * (boost > 1.5 ? 1.8 : 1);
+      var grav = sh === 'conf' ? 40 : -10;
+      el.style.setProperty('--x', x.toFixed(0) + 'px');
+      el.style.setProperty('--y', y.toFixed(0) + 'px');
+      el.style.setProperty('--sz', (6 + Math.random() * 8 + (boost > 1.5 ? 4 : 0)).toFixed(0) + 'px');
+      el.style.setProperty('--c', f.cols[(Math.random() * f.cols.length) | 0]);
+      el.style.setProperty('--dx', (Math.cos(ang) * dist).toFixed(0) + 'px');
+      el.style.setProperty('--dy', (Math.sin(ang) * dist + grav).toFixed(0) + 'px');
+      el.style.setProperty('--rot', ((Math.random() * 2 - 1) * 540).toFixed(0) + 'deg');
+      var t = 0.55 + Math.random() * 0.4;
+      el.style.setProperty('--t', t.toFixed(2) + 's');
+      floaters.appendChild(el);
+      (function (e, ms) { setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, ms); })(el, t * 1000 + 80);
+    }
+    if (f.ring && (boost > 1 || (ringTick++ % 3) === 0)) {
+      for (var k = 0; k < f.ring; k++) {
+        var rg = document.createElement('span');
+        rg.className = 'rfx';
+        rg.style.setProperty('--x', x.toFixed(0) + 'px'); rg.style.setProperty('--y', y.toFixed(0) + 'px');
+        rg.style.animationDelay = (k * 120) + 'ms';
+        floaters.appendChild(rg);
+        (function (e) { setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 800); })(rg);
+      }
+    }
+    trim();
+  }
+  function ingot(x, y) {
+    if (REDUCE) return;
+    var e = document.createElement('span');
+    e.className = 'ing'; e.style.left = x + 'px'; e.style.top = y + 'px';
+    floaters.appendChild(e);
+    setTimeout(function () { if (e.parentNode) e.parentNode.removeChild(e); }, 1300);
+  }
+  function flash() { tapBtn.classList.remove('flash'); void tapBtn.offsetWidth; tapBtn.classList.add('flash'); }
+  function bigHit(count, each) {
+    flash();
+    for (var k = 0; k < 10; k++) hop(true, k * 45); AU.sfx('crit');
+    toast('×100-Treffer! +' + eur(each * count), 3500);
+  }
+  function foundBar(nb, x, y) {
+    S.bars += nb; S.st.bars += nb;
+    flash();
+    if (x == null) { var r = mine.getBoundingClientRect(); x = r.width / 2; y = r.height * 0.4; }
+    ingot(x, y);
+    spawn(skinIdx(), x, y, 2); AU.sfx('bar');
+    toast('Goldbarren gefunden! Du hast jetzt ' + nf0.format(S.bars) + '.', 3500);
+    markDirty();
+  }
+
+  /* Zeit läuft: Geschäfte und Autoklicker */
+  function advance(dt) {
+    var p = passive() * dt;
+    if (p > 0) add(p);
+    var cp = cps();
+    if (cp <= 0) return;
+    var v = autoValue(), pc = critChance(), bc = barChance();
+    if (dt > 5) {
+      add(cp * dt * v * (1 + pc * (CRIT_MULT - 1)));
+      var eb = cp * dt * bc, nb = Math.floor(eb) + (Math.random() < eb % 1 ? 1 : 0);
+      if (nb) { S.bars += nb; S.st.bars += nb; }
+      return;
+    }
+    acc += cp * dt;
+    var n = Math.floor(acc);
+    if (n < 1) return;
+    acc -= n;
+    var g = 0, big = 0, bars = 0;
+    for (var i = 0; i < n; i++) {
+      if (Math.random() < pc) { g += v * CRIT_MULT; big++; } else g += v;
+      if (Math.random() < bc) bars++;
+    }
+    add(g); S.st.crits += big;
+    spawn(skinIdx(), null, null, 0.5); AU.sfx('auto');
+    if (big) bigHit(big, v * CRIT_MULT);
+    if (bars) foundBar(bars);
+  }
+
+  /* Eingaben: Münze gedrückt halten */
+  var holding = false, holdTimer = null, holdAcc = 0, holdLast = 0, holdX = null, holdY = null, lastHoldEnd = 0;
+  function doTap(n, x, y, first) {
+    var p = tapValue() * n;
+    add(p); S.taps += n; S.st.taps += n;
+    var nb = 0, ch = barChance();
+    for (var i = 0; i < n; i++) if (Math.random() < ch) nb++;
+    if (x == null) { var r = mine.getBoundingClientRect(); x = r.width / 2; y = r.height * 0.5; }
+    floater(x, y, '+' + eur(p)); AU.sfx('tap', skinIdx());
+    spawn(skinIdx(), x, y, first ? 1 : 0.5);
+    if (nb) foundBar(nb, x, y);
+  }
+  function startHold(x, y) {
+    if (holding) return;
+    holding = true;
+    tapBtn.classList.add('holding');
+    holdX = x; holdY = y; holdAcc = 0; holdLast = Date.now();
+    doTap(1, holdX, holdY, true);
+    render();
+    holdTimer = setInterval(holdTick, 50);
+  }
+  function holdTick() {
+    var n = Date.now(), dt = Math.min(0.25, (n - holdLast) / 1000);
+    holdLast = n;
+    holdAcc += holdRate() * dt;
+    var k = Math.floor(holdAcc);
+    if (k < 1) return;
+    holdAcc -= k;
+    doTap(k, holdX, holdY, false);
+    render();
+  }
+  function stopHold() {
+    if (!holding) return;
+    holding = false;
+    clearInterval(holdTimer); holdTimer = null;
+    tapBtn.classList.remove('holding');
+    lastHoldEnd = Date.now();
+    saveLocal(); markDirty();
+  }
+  function rel(e) { var r = mine.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+  tapBtn.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    try { tapBtn.setPointerCapture(e.pointerId); } catch (x) {}
+    var p = rel(e);
+    startHold(p[0], p[1]);
+  });
+  tapBtn.addEventListener('pointermove', function (e) {
+    if (!holding) return;
+    var p = rel(e); holdX = p[0]; holdY = p[1];
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (ev) { tapBtn.addEventListener(ev, stopHold); });
+  tapBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  tapBtn.addEventListener('dragstart', function (e) { e.preventDefault(); });
+  tapBtn.addEventListener('keydown', function (e) {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) startHold(null, null); }
+  });
+  tapBtn.addEventListener('keyup', function (e) {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stopHold(); }
+  });
+  tapBtn.addEventListener('blur', stopHold);
+  /* Für Bedienhilfen, die nur "klicken" können: ein einzelner Schlag */
+  tapBtn.addEventListener('click', function () {
+    if (holding || Date.now() - lastHoldEnd < 800) return;
+    doTap(1, null, null, true); render();
+  });
+  window.addEventListener('blur', stopHold);
+
+  upList.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.buy') : null;
+    if (!b || b.disabled) return;
+    var i = +b.closest('.up').dataset.i;
+    var q = bulk(i);
+    if (q.maxed || S.coins < q.c) return;
+    S.coins -= q.c;
+    S.lv[i] += q.n;
+    S.st.buys += q.n; AU.sfx('buy');
+    render();
+    saveLocal(); markDirty();
+  });
+
+  $('qtySeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    buyMode = b.dataset.q;
+    Array.prototype.forEach.call($('qtySeg').children, function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    render();
+  });
+
+  var tabs = [$('t-up'), $('t-ord'), $('t-mkt'), $('t-reb'), $('t-rank')];
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      tabs.forEach(function (x) {
+        var on = x === t;
+        x.setAttribute('aria-selected', on ? 'true' : 'false');
+        $(x.getAttribute('aria-controls')).hidden = !on;
+      });
+      if (t === tabs[2]) renderMarket();
+      if (t === tabs[4]) renderRank();
+    });
+  });
+
+  $('modeSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    rankMode = b.dataset.m;
+    Array.prototype.forEach.call($('modeSeg').children, function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    $('soloBox').hidden = rankMode !== 'solo';
+    $('roomBox').hidden = rankMode !== 'room';
+    renderRank();
+  });
+
+  /* Speichern */
+  var dirty = false, cloudBusy = false, cloudOK = true, lastCloudLife = -1;
+  function markDirty() { dirty = true; }
+  function saveLocal() {
+    S.last = Date.now();
+    lsSet(KEY, JSON.stringify(S));
+  }
+  function stamp() { var d = new Date(); return d.toLocaleTimeString('de-DE'); }
+  function cloudSave(manual) {
+    saveLocal();
+    if (!dbOK() || !cloudOK) {
+      if (manual) { saveInfo.textContent = 'Gespeichert um ' + stamp() + ' (nur dieses Gerät)'; }
+      return;
+    }
+    if (cloudBusy) return;
+    cloudBusy = true;
+    capDb.doc('data/users/' + uid + '/save').set({ state: S, t: Date.now(), v: 2 }).then(function () {
+      cloudBusy = false; dirty = false; lastCloudLife = S.life;
+      saveInfo.textContent = 'Gespeichert um ' + stamp() + ' (Cloud)';
+    }).catch(function (e) {
+      cloudBusy = false;
+      if (e && (e.code === 'invalid_argument' || e.code === 'revoked' || e.code === 'quota_exceeded')) cloudOK = false;
+      saveInfo.textContent = 'Gespeichert um ' + stamp() + ' (nur dieses Gerät, Cloud nicht erreichbar)';
+    });
+  }
+  $('saveBtn').addEventListener('click', function () { cloudSave(true); pushScore(true); });
+
+  function enc(o) { return btoa(unescape(encodeURIComponent(JSON.stringify(o)))); }
+  function dec(s) { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
+  $('expBtn').addEventListener('click', function () {
+    saveLocal();
+    var code = enc(S);
+    var ta = $('codeArea');
+    ta.value = code; ta.focus(); ta.select();
+    try { navigator.clipboard.writeText(code).then(function () { toast('Code kopiert.'); }, function () { toast('Code steht im Feld. Zum Kopieren markieren.'); }); }
+    catch (e) { toast('Code steht im Feld. Zum Kopieren markieren.'); }
+  });
+  $('impBtn').addEventListener('click', function () {
+    var o = null;
+    try { o = norm(dec($('codeArea').value.trim())); } catch (e) { o = null; }
+    if (!o) { toast('Dieser Code ist ungültig.'); return; }
+    S = o; acc = 0; ensureOrders(); applySkin(); lastSkinReb = -1; render(); renderRank(); saveLocal(); cloudSave(true); pushScore(true); pushPresence(true);
+    toast('Spielstand geladen.');
+  });
+
+  var armed = false, armT, RESET_TEXT = 'Spielstand zurücksetzen';
+  $('resetBtn').addEventListener('click', function () {
+    var b = $('resetBtn');
+    if (!armed) {
+      armed = true;
+      b.textContent = 'Wirklich alles löschen? Nochmal tippen.';
+      armT = setTimeout(function () { armed = false; b.textContent = RESET_TEXT; }, 4000);
+      return;
+    }
+    clearTimeout(armT); armed = false; b.textContent = RESET_TEXT;
+    S = fresh(); acc = 0; ensureOrders(); applySkin(); lastSkinReb = -1;
+    render(); renderRank(); cloudSave(true); pushScore(true); pushPresence(true);
+    toast('Neuer Anfang. Die Grube ist leer.');
+  });
+
+  /* Anmeldung, Cloud und Räume */
+  var capDb = null, capRoom = null, capUser = null, uid = null, canWrite = true;
+  function dbOK() { return !!(capDb && uid && canWrite); }
+  function initCaps() {
+    var c = window.claude;
+    if (!c || !c.use) return Promise.resolve();
+    function safe(n) { return Promise.resolve().then(function () { return c.use(n); }).catch(function () { return null; }); }
+    return Promise.all([safe('db'), safe('user'), safe('room')]).then(function (r) {
+      capDb = r[0]; capUser = r[1]; capRoom = r[2];
+      if (!capUser) return null;
+      return Promise.resolve(capUser.id()).then(function (id) {
+        uid = id || null;
+        return Promise.resolve(capUser.can('data.write')).then(function (cw) { if (cw === false) canWrite = false; });
+      });
+    }).catch(function () {});
+  }
+
+  function applyAway() {
+    var away = Math.min(Math.max(0, (Date.now() - S.last) / 1000), OFFLINE_MAX);
+    if (away > 60 && income() > 0) {
+      var before = S.coins, bb = S.bars;
+      advance(away);
+      toast('Während du weg warst: +' + eur(S.coins - before) + (S.bars > bb ? ' und ' + (S.bars - bb) + ' Goldbarren' : ''), 6000);
+    }
+  }
+
+  function cloudLoad() {
+    if (!dbOK()) return Promise.resolve();
+    return capDb.doc('data/users/' + uid + '/save').get().then(function (snap) {
+      if (!snap.exists) return;
+      var d = snap.data() || {};
+      var o = norm(d.state);
+      if (o && o.life > S.life) {
+        S = o; acc = 0; lastSkinReb = -1;
+        ensureOrders(); applySkin();
+        applyAway();
+        toast('Spielstand aus der Cloud geladen.');
+      }
+    }).catch(function () {});
+  }
+
+  /* Rangliste im Raum: Live-Teilnehmer über "room", gespeicherte Punktestände über "db" */
+  var lastDb = { l: -1, n: '' }, lastPres = { l: -1, r: -1, n: '' };
+  function pushScore(force) {
+    if (!dbOK() || !room.code || pushScore.busy) return;
+    var l = Math.floor(S.life), nm = myName();
+    if (!force && l === lastDb.l && nm === lastDb.n) return;
+    pushScore.busy = true;
+    capDb.doc('lb/' + uid).set({ code: room.code, name: nm, life: S.life, reb: S.reb, t: Date.now() }).then(function () {
+      pushScore.busy = false; lastDb = { l: l, n: nm };
+    }).catch(function (e) {
+      pushScore.busy = false;
+      if (e && e.code === 'invalid_argument') { canWrite = false; renderRoomNote(); }
+    });
+  }
+  function pushPresence(force) {
+    if (!room.nr) return;
+    var l = Math.floor(S.life), nm = myName();
+    if (!force && l === lastPres.l && S.reb === lastPres.r && nm === lastPres.n) return;
+    lastPres = { l: l, r: S.reb, n: nm };
+    Promise.resolve(room.nr.presence({ n: nm, l: l, r: S.reb })).catch(function () {});
+  }
+
+  function cleanCode(v) { return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10); }
+  function showRoom() {
+    var live = !!room.code;
+    $('roomJoin').hidden = live; $('roomLive').hidden = !live;
+    $('roomCode').textContent = room.code;
+  }
+  function leaveLocal() {
+    room.gen++;
+    clearTimeout(room.slowT);
+    if (room.offPeers) { try { room.offPeers(); } catch (e) {} room.offPeers = null; }
+    if (room.offConn) { try { room.offConn(); } catch (e) {} room.offConn = null; }
+    if (room.nr) { try { Promise.resolve(room.nr.leave()).catch(function () {}); } catch (e) {} room.nr = null; }
+    if (room.unsub) { try { room.unsub(); } catch (e) {} room.unsub = null; }
+    room.code = ''; room.peers = []; room.dbPlayers = []; room.loaded = false; room.err = ''; room.dbErr = ''; room.slow = false; room.connected = false;
+  }
+  function joinRoom(code) {
+    code = cleanCode(code);
+    if (!capRoom && !capDb) { renderRoomNote(); return; }
+    if (code.length < 3) { toast('Der Raumcode braucht mindestens 3 Zeichen.'); return; }
+    leaveLocal();
+    var gen = room.gen;
+    room.code = code;
+    lastDb = { l: -1, n: '' }; lastPres = { l: -1, r: -1, n: '' };
+    lsSet(NAMEKEY, ($('nameIn').value || '').trim().slice(0, 20));
+    lsSet(ROOMKEY, code); lsSet(ROOMON, '1');
+    room.slowT = setTimeout(function () { room.slow = true; renderRoomNote(); }, 10000);
+    if (capRoom) {
+      Promise.resolve(capRoom.join('gg-' + code.toLowerCase())).then(function (nr) {
+        if (room.gen !== gen) { try { nr.leave(); } catch (e) {} return; }
+        room.nr = nr;
+        room.offPeers = nr.onPeers(function (ch) { room.peers = ch.peers; room.loaded = true; renderRank(); },
+          function (e) { room.err = (e && e.code) || 'Fehler'; renderRank(); });
+        room.offConn = nr.onConnection(function (c) { room.connected = c; if (c) room.slow = false; renderRoomNote(); }, function () {});
+        pushPresence(true);
+      }).catch(function (e) {
+        if (room.gen === gen) { room.err = (e && e.code) || 'Fehler'; renderRank(); }
+      });
+    }
+    if (capDb) {
+      try {
+        room.unsub = capDb.collection('lb').where('code', '==', code).limit(100).onSnapshot(function (s) {
+          room.dbPlayers = s.docs.map(function (d) {
+            var o = d.data() || {};
+            return { id: d.id, name: String(o.name || 'Schürfer').slice(0, 20), life: nn(o.life), reb: Math.floor(nn(o.reb)), t: nn(o.t) };
+          });
+          room.loaded = true;
+          renderRank();
+        }, function (e) { room.dbErr = (e && e.code) || 'Fehler'; });
+      } catch (e) { room.dbErr = 'Fehler'; }
+    }
+    showRoom();
+    pushScore(true);
+    renderRank();
+  }
+  function leaveRoom() {
+    var had = room.code;
+    leaveLocal();
+    lsSet(ROOMON, '');
+    showRoom();
+    if (had && dbOK()) capDb.doc('lb/' + uid).delete().catch(function () {});
+    renderRank();
+  }
+
+  $('joinBtn').addEventListener('click', function () { joinRoom($('codeIn').value); });
+  $('codeIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') joinRoom($('codeIn').value); });
+  $('newBtn').addEventListener('click', function () {
+    var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', c = '';
+    for (var i = 0; i < 5; i++) c += abc.charAt(Math.floor(Math.random() * abc.length));
+    $('codeIn').value = c;
+    joinRoom(c);
+  });
+  $('leaveBtn').addEventListener('click', leaveRoom);
+  $('copyCode').addEventListener('click', function () {
+    try { navigator.clipboard.writeText(room.code).then(function () { toast('Raumcode kopiert.'); }, function () { toast('Code: ' + room.code); }); }
+    catch (e) { toast('Code: ' + room.code); }
+  });
+  $('nameIn').addEventListener('change', function () { lsSet(NAMEKEY, ($('nameIn').value || '').trim().slice(0, 20)); pushScore(true); pushPresence(true); });
+
+  /* Ton: Effekte und Musik werden live erzeugt, es braucht keine Dateien */
+  var AU = (function () {
+    var ctx, mus, sg, nb, timer, nextT = 0, step = 0, last = {};
+    var st = { m: 1, mv: 40, s: 1, sv: 70 };
+    var CH = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]], PENT = [69, 72, 74, 76, 79, 81];
+    try { var j = JSON.parse(localStorage.getItem('geldgrube-ton-1')); if (j) for (var k in st) if (typeof j[k] === 'number') st[k] = j[k]; } catch (e) {}
+    function f(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+    function vol() { if (!ctx) return; mus.gain.value = st.m ? Math.pow(st.mv / 100, 2) * 1.2 : 0; sg.gain.value = st.s ? Math.pow(st.sv / 100, 2) : 0; }
+    function init() {
+      if (!ctx) {
+        var C = window.AudioContext || window.webkitAudioContext; if (!C) return false;
+        ctx = new C(); mus = ctx.createGain(); sg = ctx.createGain();
+        mus.connect(ctx.destination); sg.connect(ctx.destination);
+        nb = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+        var d = nb.getChannelData(0); for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        vol();
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      return true;
+    }
+    function tone(fr, t, d, ty, v, out, to, a) {
+      var o = ctx.createOscillator(), g = ctx.createGain(); a = a || 0.008;
+      o.type = ty; o.frequency.setValueAtTime(fr, t);
+      if (to) o.frequency.exponentialRampToValueAtTime(to, t + d);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(out || sg); o.start(t); o.stop(t + d + 0.05);
+    }
+    function hiss(t, d, v, fr, out) {
+      var s = ctx.createBufferSource(), h = ctx.createBiquadFilter(), g = ctx.createGain();
+      s.buffer = nb; h.type = 'highpass'; h.frequency.value = fr;
+      g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      s.connect(h); h.connect(g); g.connect(out || sg); s.start(t); s.stop(t + d + 0.02);
+    }
+    function run(ns, gap, ty, v, d) { var t = ctx.currentTime; ns.forEach(function (m, i) { tone(f(m), t + i * gap, d, ty, v); }); }
+    function sfx(n, a) {
+      if (!ctx || !st.s) return;
+      var t = ctx.currentTime, now = Date.now(), i;
+      if (n === 'tap') { if (now - (last.tap || 0) < 45) return; last.tap = now; var b = 1500 + (a || 0) * 90 + Math.random() * 250; tone(b, t, .08, 'triangle', .22, 0, b * .7); tone(b * 2.4, t, .05, 'sine', .08); hiss(t, .03, .06, 6000); }
+      else if (n === 'auto') { if (now - (last.auto || 0) < 250) return; last.auto = now; tone(1100, t, .05, 'sine', .06); }
+      else if (n === 'ui') tone(520, t, .05, 'sine', .12, 0, 780);
+      else if (n === 'buy') { run([72, 76, 79, 84], .055, 'triangle', .22, .22); hiss(t, .05, .1, 4000); }
+      else if (n === 'sell') { for (i = 0; i < 7; i++) tone(1800 + Math.random() * 1400, t + i * .045, .12, 'triangle', .14); tone(f(88), t + .32, .5, 'sine', .18); }
+      else if (n === 'bar') { run([84, 88, 91, 96, 100], .07, 'sine', .2, .5); hiss(t, .4, .04, 9000); }
+      else if (n === 'crit') { run([60, 64, 67, 72, 76], .07, 'square', .1, .5); tone(200, t, .5, 'sawtooth', .07, 0, 900); }
+      else if (n === 'order') run([67, 71, 74, 79], .09, 'triangle', .24, .4);
+      else if (n === 'ready') run([86, 91], .1, 'sine', .18, .35);
+      else if (n === 'skip') tone(380, t, .15, 'triangle', .18, 0, 200);
+      else if (n === 'reb') { run([55, 59, 62, 67, 71, 74, 79, 83], .11, 'triangle', .25, .9); tone(80, t, 1.2, 'sawtooth', .1, 0, 400); hiss(t, 1, .08, 2000); }
+    }
+    function play(s, t) {
+      var c = CH[(s >> 3) & 3], q = s & 7, d = .357;
+      if (q === 0) { c.forEach(function (m) { tone(f(m), t, d * 8, 'triangle', .07, mus, 0, .6); }); tone(f(c[0] - 12), t, d * 3.5, 'sine', .3, mus, 0, .02); }
+      if (q === 4) tone(f(c[0] - 12), t, d * 3, 'sine', .22, mus);
+      if (q === 0 || q === 4) tone(130, t, .16, 'sine', .35, mus, 45);
+      if (q & 1) hiss(t, .035, .035, 7000, mus);
+      if (q === 2 || q === 6) hiss(t, .12, .05, 2500, mus);
+      if (Math.random() < .55) tone(f(c[q % 3] + 12), t, d * 1.6, 'triangle', .09, mus);
+      if (Math.random() < .22) tone(f(PENT[(Math.random() * PENT.length) | 0] + 12), t, d * 2, 'sine', .08, mus);
+    }
+    function sched() { while (nextT < ctx.currentTime + .5) { play(step++, nextT); nextT += .357; } }
+    function go() { if (!ctx || timer || !st.m) return; nextT = ctx.currentTime + .08; timer = setInterval(sched, 150); }
+    function halt() { clearInterval(timer); timer = null; }
+    return {
+      sfx: sfx, st: st,
+      unlock: function () { if (init()) go(); },
+      set: function (k, v) {
+        st[k] = v; try { localStorage.setItem('geldgrube-ton-1', JSON.stringify(st)); } catch (e) {}
+        vol(); if (k === 'm') { if (v) { if (init()) go(); } else halt(); }
+      },
+      pause: function () { halt(); if (ctx) ctx.suspend(); },
+      resume: function () { if (ctx) { ctx.resume(); go(); } }
+    };
+  })();
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, AU.unlock, true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) AU.pause(); else AU.resume(); });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (b && !b.disabled && !b.closest('#tapBtn,.buy,.skip')) AU.sfx('ui');
+  });
+  var sndP = $('sndPanel'), sndB = $('sndBtn');
+  sndB.addEventListener('click', function () { sndP.hidden = !sndP.hidden; sndB.setAttribute('aria-expanded', String(!sndP.hidden)); });
+  $('mOn').checked = !!AU.st.m; $('sOn').checked = !!AU.st.s; $('mVol').value = AU.st.mv; $('sVol').value = AU.st.sv;
+  $('mOn').addEventListener('change', function () { AU.set('m', this.checked ? 1 : 0); });
+  $('sOn').addEventListener('change', function () { AU.set('s', this.checked ? 1 : 0); AU.sfx('buy'); });
+  $('mVol').addEventListener('input', function () { AU.set('mv', +this.value); });
+  $('sVol').addEventListener('input', function () { AU.set('sv', +this.value); });
+  $('sVol').addEventListener('change', function () { AU.sfx('buy'); });
+
+  /* Start */
+  $('nameIn').value = lsGet(NAMEKEY);
+  $('codeIn').value = lsGet(ROOMKEY);
+  var lastTick = Date.now();
+  buildSkins();
+  ensureOrders();
+  applySkin();
+  applyAway();
+  render();
+  renderRank();
+  saveLocal();
+
+  setInterval(function () {
+    var n = Date.now();
+    var dt = Math.min(Math.max(0, (n - lastTick) / 1000), OFFLINE_MAX);
+    lastTick = n;
+    if (dt > 0) advance(dt);
+    checkReb();
+    if (!holding) render();
+  }, 200);
+  setInterval(saveLocal, 5000);
+  setInterval(function () { if (!$('p-rank').hidden || room.code) renderRank(); }, 2000);
+  setInterval(function () { if (dirty || S.life !== lastCloudLife) cloudSave(false); }, 30000);
+  setInterval(function () { pushScore(false); }, 15000);
+  setInterval(function () { pushPresence(false); }, 3000);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { stopHold(); saveLocal(); } });
+  window.addEventListener('pagehide', saveLocal);
+
+  initCaps().then(function () {
+    renderRoomNote();
+    return cloudLoad();
+  }).then(function () {
+    render(); renderRank();
+    var rc = lsGet(ROOMKEY);
+    if ((capRoom || capDb) && rc && cleanCode(rc).length >= 3 && lsGet(ROOMON) === '1') joinRoom(rc);
+    if (dbOK()) cloudSave(false);
+  });
+})();
+</script>
+
+<script>if('serviceWorker' in navigator)addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});</script>
+</body></html>
